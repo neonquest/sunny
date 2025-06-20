@@ -271,6 +271,62 @@ class TestTaskManagement(unittest.TestCase):
         delete_from_non_existent_parent = tasks.delete_sub_task(999, sub_task_to_keep['id'])
         self.assertFalse(delete_from_non_existent_parent)
 
+    def test_move_sub_task(self):
+        """Test moving a sub-task up and down within a parent task's list."""
+        parent_task = tasks.add_task("Parent for Sub-task Reordering")
+        st1 = tasks.add_sub_task(parent_task.id, "Sub-task 1 (First)")
+        st2 = tasks.add_sub_task(parent_task.id, "Sub-task 2 (Middle)")
+        st3 = tasks.add_sub_task(parent_task.id, "Sub-task 3 (Last)")
+
+        # Initial order: st1, st2, st3
+        self.assertEqual(parent_task.sub_tasks[0]['id'], st1['id'])
+        self.assertEqual(parent_task.sub_tasks[1]['id'], st2['id'])
+        self.assertEqual(parent_task.sub_tasks[2]['id'], st3['id'])
+
+        # Move st2 up (st1, st2, st3 -> st2, st1, st3)
+        result = tasks.move_sub_task(parent_task.id, st2['id'], 'up')
+        self.assertTrue(result)
+        self.assertEqual(parent_task.sub_tasks[0]['id'], st2['id'])
+        self.assertEqual(parent_task.sub_tasks[1]['id'], st1['id'])
+        self.assertEqual(parent_task.sub_tasks[2]['id'], st3['id'])
+
+        # Try to move st2 (now first) up again (should fail)
+        result = tasks.move_sub_task(parent_task.id, st2['id'], 'up')
+        self.assertFalse(result) # Already at the top
+        self.assertEqual(parent_task.sub_tasks[0]['id'], st2['id']) # Order unchanged
+
+        # Move st1 down (st2, st1, st3 -> st2, st3, st1)
+        result = tasks.move_sub_task(parent_task.id, st1['id'], 'down')
+        self.assertTrue(result)
+        self.assertEqual(parent_task.sub_tasks[0]['id'], st2['id'])
+        self.assertEqual(parent_task.sub_tasks[1]['id'], st3['id'])
+        self.assertEqual(parent_task.sub_tasks[2]['id'], st1['id'])
+
+        # Try to move st1 (now last) down again (should fail)
+        result = tasks.move_sub_task(parent_task.id, st1['id'], 'down')
+        self.assertFalse(result) # Already at the bottom
+        self.assertEqual(parent_task.sub_tasks[2]['id'], st1['id']) # Order unchanged
+
+        # Test invalid direction
+        result = tasks.move_sub_task(parent_task.id, st3['id'], 'sideways')
+        self.assertFalse(result)
+
+        # Test moving non-existent sub-task
+        result = tasks.move_sub_task(parent_task.id, 9999, 'up')
+        self.assertFalse(result)
+
+        # Test moving sub-task in non-existent parent task
+        result = tasks.move_sub_task(999, st1['id'], 'up')
+        self.assertFalse(result)
+
+        # Test with only one sub-task (cannot move)
+        single_sub_task_parent = tasks.add_task("Parent with one sub-task")
+        single_st = tasks.add_sub_task(single_sub_task_parent.id, "Only sub-task")
+        result_up = tasks.move_sub_task(single_sub_task_parent.id, single_st['id'], 'up')
+        self.assertFalse(result_up)
+        result_down = tasks.move_sub_task(single_sub_task_parent.id, single_st['id'], 'down')
+        self.assertFalse(result_down)
+
 
 if __name__ == '__main__':
     unittest.main()

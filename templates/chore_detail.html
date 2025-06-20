@@ -85,6 +85,16 @@
                                     <em>(ID: {{ subtask.id }})</em>
                                 </span>
                                 <div class="subtask-actions">
+                                    <form method="POST" action="{{ url_for('move_sub_task_route', task_id=chore.id, sub_task_id=subtask.id, direction='up') }}" style="display:inline;">
+                                        <button type="submit" class="edit-btn" style="background-color: #6c757d; padding: 5px 8px; font-size: 0.8em;" {% if loop.first %}disabled{% endif %}>
+                                            &uarr; Up
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('move_sub_task_route', task_id=chore.id, sub_task_id=subtask.id, direction='down') }}" style="display:inline;">
+                                        <button type="submit" class="edit-btn" style="background-color: #6c757d; padding: 5px 8px; font-size: 0.8em;" {% if loop.last %}disabled{% endif %}>
+                                            &darr; Down
+                                        </button>
+                                    </form>
                                     <form method="POST" action="{{ url_for('toggle_sub_task_route', task_id=chore.id, sub_task_id=subtask.id) }}" style="display:inline;">
                                         <button type="submit" class="edit-btn" style="background-color: {{ '#28a745' if not subtask.completed else '#ffc107' }}; color: white; padding: 5px 8px; font-size: 0.8em;">
                                             {{ 'Mark Complete' if not subtask.completed else 'Mark Pending' }}

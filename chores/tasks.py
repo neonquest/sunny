@@ -138,3 +138,36 @@ def delete_sub_task(task_id: int, sub_task_id: int) -> bool:
             task.sub_tasks.remove(sub_task)
             return True
     return False
+
+def move_sub_task(task_id: int, sub_task_id: int, direction: str) -> bool:
+    """Moves a sub-task up or down in the sub_tasks list of a parent task."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return False
+
+    sub_task_to_move = None
+    current_index = -1
+    for i, st in enumerate(task.sub_tasks):
+        if st['id'] == sub_task_id:
+            sub_task_to_move = st
+            current_index = i
+            break
+
+    if sub_task_to_move is None:
+        return False # Sub-task not found
+
+    if direction == 'up':
+        if current_index == 0:
+            return False # Already at the top
+        new_index = current_index - 1
+    elif direction == 'down':
+        if current_index == len(task.sub_tasks) - 1:
+            return False # Already at the bottom
+        new_index = current_index + 1
+    else:
+        return False # Invalid direction
+
+    # Perform the move
+    task.sub_tasks.pop(current_index)
+    task.sub_tasks.insert(new_index, sub_task_to_move)
+    return True
