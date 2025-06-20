@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock # Import mock
 from web_app import app # Import the Flask app instance
 from chores import tasks, planning
 
@@ -335,6 +336,63 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post(f'/chore/{task.id}/sub_task/{st1["id"]}/move/down', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Could not move sub-task &#39;SubTask Web One&#39;. It might be at the limit.", response.data)
+
+# --- Tests for AI Sub-task Suggestions ---
+    def test_suggest_ai_subtasks(self):
+        """Test AI sub-task suggestion feature."""
+        task = tasks.add_task("Clean the entire house")
+
+        # Mock the AI assistant's response
+        with unittest.mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
+            mock_get_suggestions.return_value = [
+                "Clean kitchen",
+                "Clean bathrooms",
+                "Vacuum all floors"
+            ]
+
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"3 sub-task(s) suggested by AI and added.", response.data)
+
+            # Verify sub-tasks were added
+            updated_task = tasks.get_task_by_id(task.id)
+            self.assertEqual(len(updated_task.sub_tasks), 3)
+            self.assertEqual(updated_task.sub_tasks[0]['description'], "Clean kitchen")
+            self.assertEqual(updated_task.sub_tasks[1]['description'], "Clean bathrooms")
+            self.assertEqual(updated_task.sub_tasks[2]['description'], "Vacuum all floors")
+
+            # Check if they appear on the page
+            self.assertIn(b"Clean kitchen", response.data)
+            self.assertIn(b"Clean bathrooms", response.data)
+            self.assertIn(b"Vacuum all floors", response.data)
+
+    def test_suggest_ai_subtasks_no_suggestions(self):
+        """Test AI sub-task suggestion when AI returns no suggestions."""
+        task = tasks.add_task("Organize esoteric book collection")
+
+        with unittest.mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
+            mock_get_suggestions.return_value = [] # AI returns nothing
+
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"The AI assistant couldn&#39;t come up with suggestions for this chore.", response.data)
+
+            updated_task = tasks.get_task_by_id(task.id)
+            self.assertEqual(len(updated_task.sub_tasks), 0) # No sub-tasks should be added
+
+    def test_suggest_ai_subtasks_api_error(self):
+        """Test AI sub-task suggestion when the AI call raises an exception."""
+        task = tasks.add_task("Plan interstellar voyage")
+
+        with unittest.mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
+            mock_get_suggestions.side_effect = Exception("Simulated API Error")
+
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"An error occurred while trying to get AI suggestions.", response.data)
+
+            updated_task = tasks.get_task_by_id(task.id)
+            self.assertEqual(len(updated_task.sub_tasks), 0)
 
 
 if __name__ == '__main__':

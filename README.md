@@ -42,6 +42,7 @@ The application supports managing chores through a Command-Line Interface (CLI) 
 *   **Add Chore:** Create new chores, optionally specifying initial notes and a due date.
 *   **Edit Chore Details:** Modify a chore's description, notes, and due date.
     *   **Manage Sub-tasks:** From the chore detail page, you can add new sub-tasks, mark them as complete/pending, delete them, or reorder them using 'Up'/'Down' buttons.
+    *   **AI Sub-task Suggestions:** On the chore detail page, click "Suggest with AI" to get (currently mocked) suggestions for sub-tasks based on the chore's description.
 *   **Update Status:** Quickly change a chore's overall status (Pending, In Progress, Completed) from the main list.
 *   **Delete Chore:** Remove a chore and all its associated details.
 
