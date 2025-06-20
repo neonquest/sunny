@@ -1,5 +1,5 @@
 from flask import Flask, render_template, url_for, request, redirect, flash
-from chores import tasks, planning # Import the tasks and planning modules
+from chores import tasks, planning, ai_assistant # Import the tasks, planning, and ai_assistant modules
 
 app = Flask(__name__)
 app.secret_key = 'your secret key' # Needed for flashing messages
@@ -212,6 +212,39 @@ def move_sub_task_route(task_id, sub_task_id, direction):
         # This might happen if trying to move first item up, or last item down,
         # or if sub-task/task not found (though checked above).
         flash(f"Could not move sub-task '{sub_task['description']}'. It might be at the limit.", 'warning')
+
+    return redirect(url_for('chore_detail_route', task_id=task_id))
+
+@app.route('/chore/<int:task_id>/suggest_subtasks_ai', methods=['POST'])
+def suggest_ai_subtasks_route(task_id):
+    """Handles AI suggestion for sub-tasks."""
+    chore = tasks.get_task_by_id(task_id)
+    if not chore:
+        flash(f"Chore with ID {task_id} not found.", 'error')
+        return redirect(url_for('view_chores_route'))
+
+    try:
+        # This will call our mock AI for now
+        # Corrected: Call ai_assistant module directly
+        suggested_descriptions = ai_assistant.get_subtask_suggestions(chore.description)
+
+        if not suggested_descriptions:
+            flash("The AI assistant couldn't come up with suggestions for this chore.", 'info')
+        else:
+            count = 0
+            for desc in suggested_descriptions:
+                if tasks.add_sub_task(task_id, desc):
+                    count += 1
+            if count > 0:
+                flash(f"{count} sub-task(s) suggested by AI and added.", 'success')
+            else:
+                # This might happen if all suggestions were empty strings, though mock prevents this.
+                flash("AI suggested tasks, but none could be added.", 'warning')
+
+    except Exception as e:
+        # In a real scenario, log the error `e`
+        print(f"Error during AI sub-task suggestion: {e}") # For debugging
+        flash("An error occurred while trying to get AI suggestions. Please try again later.", 'error')
 
     return redirect(url_for('chore_detail_route', task_id=task_id))
 
