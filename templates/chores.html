@@ -58,6 +58,8 @@
                         <th>ID</th>
                         <th>Description</th>
                         <th>Status</th>
+                        <th>Due Date</th>
+                        <th>Sub-tasks</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -65,7 +67,7 @@
                     {% for chore in chores %}
                     <tr>
                         <td>{{ chore.id }}</td>
-                        <td>{{ chore.description }}</td>
+                        <td><a href="{{ url_for('chore_detail_route', task_id=chore.id) }}">{{ chore.description }}</a></td>
                         <td>
                             <form method="POST" action="{{ url_for('update_chore_status_route', task_id=chore.id) }}" style="display:inline;">
                                 <select name="status" onchange="this.form.submit()">
@@ -77,6 +79,8 @@
                                 <button type="submit" style="display:none;">Update</button>
                             </form>
                         </td>
+                         <td>{{ chore.due_date.isoformat() if chore.due_date else 'N/A' }}</td>
+                         <td>{{ chore.sub_tasks|length }}</td>
                         <td class="actions">
                             <form method="POST" action="{{ url_for('delete_chore_route', task_id=chore.id) }}" style="display:inline;">
                                 <button type="submit" class="delete-btn" onclick="return confirm('Are you sure you want to delete this chore: \'{{ chore.description }}\'?');">Delete</button>

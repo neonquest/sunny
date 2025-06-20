@@ -47,9 +47,35 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200) # After redirect to /chores
         self.assertIn(b"Test Web Chore", response.data) # Check if the new chore is displayed
         self.assertIn(b"Chore &#39;Test Web Chore&#39; added successfully!", response.data) # Check flash message (HTML escaped)
+        self.assertIn(b"N/A", response.data) # Due date should be N/A
+        self.assertIn(b"0", response.data) # Sub-tasks count
 
         self.assertEqual(len(tasks.get_all_tasks()), initial_task_count + 1)
-        self.assertEqual(tasks.get_all_tasks()[0].description, "Test Web Chore")
+        created_task = tasks.get_all_tasks()[0]
+        self.assertEqual(created_task.description, "Test Web Chore")
+        self.assertEqual(created_task.notes, "")
+        self.assertIsNone(created_task.due_date)
+
+    def test_add_new_chore_with_details_post(self):
+        """Test adding a new chore with notes and due date."""
+        from datetime import date
+        today_str = date.today().isoformat()
+        response = self.client.post('/add_chore', data={
+            'description': 'Detailed Chore',
+            'notes': 'Some important notes.',
+            'due_date': today_str
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Detailed Chore", response.data)
+        self.assertIn(b"Chore &#39;Detailed Chore&#39; added successfully!", response.data)
+        self.assertIn(bytes(today_str, 'utf-8'), response.data) # Check for due date on chores list
+
+        created_task = tasks.get_task_by_id(1) # Assuming it's the first task
+        self.assertIsNotNone(created_task)
+        self.assertEqual(created_task.description, "Detailed Chore")
+        self.assertEqual(created_task.notes, "Some important notes.")
+        self.assertEqual(created_task.due_date, date.fromisoformat(today_str))
+
 
     def test_add_empty_chore_post(self):
         """Test adding a chore with an empty description via POST request."""
@@ -94,7 +120,7 @@ class WebAppTests(unittest.TestCase):
 
         response = self.client.post(f'/delete_chore/{task_id_to_delete}', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Chore &#39;Chore to Delete&#39; and any associated plans deleted successfully.", response.data) # HTML escaped
+        self.assertIn(b"Chore &#39;Chore to Delete&#39; and its details deleted successfully.", response.data) # HTML escaped
         self.assertIsNone(tasks.get_task_by_id(task_id_to_delete))
 
     def test_delete_non_existent_chore(self):
@@ -102,6 +128,163 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post('/delete_chore/999', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Chore with ID 999 not found", response.data)
+
+    def test_chore_detail_page_loads(self):
+        """Test if the chore detail page loads and shows details."""
+        from datetime import date
+        today = date.today()
+        task = tasks.add_task("Detail Test Chore", notes="Detail notes.", due_date=today)
+        tasks.add_sub_task(task.id, "Sub-task 1 for detail page")
+
+        response = self.client.get(f'/chore/{task.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Detail Test Chore", response.data)
+        self.assertIn(b"Detail notes.", response.data)
+        self.assertIn(bytes(today.isoformat(), 'utf-8'), response.data)
+        self.assertIn(b"Sub-task 1 for detail page", response.data)
+        self.assertIn(b"Edit Main Chore Details", response.data) # Check for edit button/link
+
+    def test_chore_detail_page_not_found(self):
+        """Test chore detail page for a non-existent chore."""
+        response = self.client.get('/chore/999', follow_redirects=True)
+        self.assertEqual(response.status_code, 200) # Follows redirect to chores list
+        self.assertIn(b"Chore with ID 999 not found", response.data) # Flash message on chores list
+
+    def test_edit_chore_details_page_loads_get(self):
+        """Test if the edit chore page loads correctly with a GET request."""
+        task = tasks.add_task("Chore To Edit Get")
+        response = self.client.get(f'/chore/{task.id}/edit')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Edit Chore: Chore To Edit Get", response.data)
+        self.assertIn(b"Chore To Edit Get", response.data) # Original description in form
+
+    def test_edit_chore_details_post(self):
+        """Test editing chore details via POST request."""
+        from datetime import date
+        task = tasks.add_task("Original Desc", notes="Original Notes", due_date=date(2023, 1, 1))
+
+        new_desc = "Updated Description"
+        new_notes = "Updated Notes"
+        new_due_date_str = "2024-12-25"
+        new_due_date_obj = date(2024, 12, 25)
+
+        response = self.client.post(f'/chore/{task.id}/edit', data={
+            'description': new_desc,
+            'notes': new_notes,
+            'due_date': new_due_date_str
+        }, follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200) # Redirects to chore_detail
+        self.assertIn(bytes(f"Chore &#39;{new_desc}&#39; updated successfully!", 'utf-8'), response.data)
+
+        updated_task = tasks.get_task_by_id(task.id)
+        self.assertEqual(updated_task.description, new_desc)
+        self.assertEqual(updated_task.notes, new_notes)
+        self.assertEqual(updated_task.due_date, new_due_date_obj)
+
+        # Check if details are updated on the detail page
+        self.assertIn(bytes(new_desc, 'utf-8'), response.data)
+        self.assertIn(bytes(new_notes, 'utf-8'), response.data)
+        self.assertIn(bytes(new_due_date_str, 'utf-8'), response.data)
+
+    def test_edit_chore_details_empty_description_post(self):
+        """Test editing chore with empty description."""
+        task = tasks.add_task("Valid Description")
+        response = self.client.post(f'/chore/{task.id}/edit', data={
+            'description': '', 'notes': 'Some notes', 'due_date': ''
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200) # Renders edit_chore.html again, not 400 directly due to follow_redirects on error path
+        self.assertIn(b"Description cannot be empty.", response.data)
+        original_task = tasks.get_task_by_id(task.id)
+        self.assertEqual(original_task.description, "Valid Description") # Should not change
+
+    def test_edit_chore_details_invalid_date_post(self):
+        """Test editing chore with invalid date format."""
+        task = tasks.add_task("Date Test Chore")
+        response = self.client.post(f'/chore/{task.id}/edit', data={
+            'description': 'Date Test Chore', 'notes': '', 'due_date': 'not-a-date'
+        }, follow_redirects=True) # Renders edit_chore.html again
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Invalid due date format.", response.data)
+        original_task = tasks.get_task_by_id(task.id)
+        self.assertIsNone(original_task.due_date) # Should not change or be set
+
+# --- Tests for Sub-task Management ---
+
+    def test_add_sub_task(self):
+        """Test adding a sub-task to a chore."""
+        task = tasks.add_task("Parent Chore for Sub-task")
+        response = self.client.post(f'/chore/{task.id}/add_sub_task', data={
+            'sub_task_description': 'My First Sub-task'
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200) # Redirects to chore_detail
+        self.assertIn(b"Sub-task added successfully.", response.data)
+        self.assertIn(b"My First Sub-task", response.data) # Sub-task shown on detail page
+
+        updated_parent_task = tasks.get_task_by_id(task.id)
+        self.assertEqual(len(updated_parent_task.sub_tasks), 1)
+        self.assertEqual(updated_parent_task.sub_tasks[0]['description'], "My First Sub-task")
+        self.assertFalse(updated_parent_task.sub_tasks[0]['completed'])
+
+    def test_add_empty_sub_task(self):
+        """Test adding an empty sub-task."""
+        task = tasks.add_task("Parent for Empty Sub")
+        response = self.client.post(f'/chore/{task.id}/add_sub_task', data={
+            'sub_task_description': ''
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Sub-task description cannot be empty.", response.data)
+        updated_parent_task = tasks.get_task_by_id(task.id)
+        self.assertEqual(len(updated_parent_task.sub_tasks), 0)
+
+    def test_toggle_sub_task_status(self):
+        """Test toggling a sub-task's completion status."""
+        task = tasks.add_task("Parent for Toggle Sub-task")
+        sub_task = tasks.add_sub_task(task.id, "Sub-task to toggle")
+        self.assertFalse(sub_task['completed'])
+
+        # Toggle to complete
+        response = self.client.post(f'/chore/{task.id}/sub_task/{sub_task["id"]}/toggle', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(bytes(f"Sub-task &#39;{sub_task['description']}&#39; marked as completed.", 'utf-8'), response.data)
+        updated_sub_task_obj = tasks.get_sub_task_by_id(tasks.get_task_by_id(task.id), sub_task['id'])
+        self.assertTrue(updated_sub_task_obj['completed'])
+        self.assertIn(b"Mark Pending", response.data) # Button text should change
+
+        # Toggle back to pending
+        response = self.client.post(f'/chore/{task.id}/sub_task/{sub_task["id"]}/toggle', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(bytes(f"Sub-task &#39;{sub_task['description']}&#39; marked as pending.", 'utf-8'), response.data)
+        updated_sub_task_obj = tasks.get_sub_task_by_id(tasks.get_task_by_id(task.id), sub_task['id'])
+        self.assertFalse(updated_sub_task_obj['completed'])
+        self.assertIn(b"Mark Complete", response.data) # Button text should change back
+
+    def test_delete_sub_task(self):
+        """Test deleting a sub-task."""
+        task = tasks.add_task("Parent for Delete Sub-task")
+        sub_task_to_delete = tasks.add_sub_task(task.id, "Sub-task to be deleted")
+        sub_task_to_keep = tasks.add_sub_task(task.id, "Sub-task to keep")
+
+        self.assertEqual(len(tasks.get_task_by_id(task.id).sub_tasks), 2)
+
+        response = self.client.post(f'/chore/{task.id}/sub_task/{sub_task_to_delete["id"]}/delete', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(bytes(f"Sub-task &#39;{sub_task_to_delete['description']}&#39; deleted successfully.", 'utf-8'), response.data)
+
+        updated_parent_task = tasks.get_task_by_id(task.id)
+        self.assertEqual(len(updated_parent_task.sub_tasks), 1)
+        self.assertEqual(updated_parent_task.sub_tasks[0]['id'], sub_task_to_keep['id'])
+
+        # Check that the deleted sub-task's specific list item structure is not present
+        # This is more targeted than checking the entire response.data for the description string
+        # which might appear in a flash message.
+        deleted_sub_task_html_part = f"<span>\n                                    {sub_task_to_delete['description']}\n                                    <em>(ID: {sub_task_to_delete['id']})</em>"
+        self.assertNotIn(bytes(deleted_sub_task_html_part, 'utf-8'), response.data)
+
+        # Check that the kept sub-task's list item structure IS present
+        kept_sub_task_html_part = f"<span>\n                                    {sub_task_to_keep['description']}\n                                    <em>(ID: {sub_task_to_keep['id']})</em>"
+        self.assertIn(bytes(kept_sub_task_html_part, 'utf-8'), response.data)
+
 
 if __name__ == '__main__':
     unittest.main()
