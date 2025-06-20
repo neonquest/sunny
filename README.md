@@ -34,4 +34,19 @@ A simple application to manage household chores.
 
 ## Usage
 
-(Instructions to be added for specific features)
+The application supports managing chores through a Command-Line Interface (CLI) or a web interface.
+
+### Web Interface Features:
+*   **View Chores:** Lists all chores, their status, due date, and sub-task count.
+*   **Chore Details:** Click on a chore to see its full details including notes and a list of sub-tasks.
+*   **Add Chore:** Create new chores, optionally specifying initial notes and a due date.
+*   **Edit Chore Details:** Modify a chore's description, notes, and due date.
+*   **Manage Sub-tasks:** From the chore detail page, you can add new sub-tasks, mark them as complete/pending, or delete them.
+*   **Update Status:** Quickly change a chore's overall status (Pending, In Progress, Completed) from the main list.
+*   **Delete Chore:** Remove a chore and all its associated details.
+
+### CLI Features:
+*   Basic functionality for adding, viewing, updating status, and deleting chores.
+*   Basic planning note association (less extensive than web interface).
+
+(More detailed instructions for specific CLI commands or web interactions can be added as needed.)

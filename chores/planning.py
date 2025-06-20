@@ -1,36 +1,18 @@
-# This file will contain the logic for planning chores.
-from typing import Any, Dict
+# This file previously contained logic for planning chores.
+# Basic planning details like notes, due date, and sub-tasks are now
+# managed directly within the Task object in `chores.tasks`.
 
-# In-memory storage for plans. Key is task_id.
-_task_plans: Dict[int, Dict[str, Any]] = {}
+# Advanced planning features, if added in the future (e.g., material estimation,
+# time blocking, complex dependency tracking), might utilize this module again
+# or a new dedicated planning system.
 
-def add_plan_details(task_id: int, details: Dict[str, Any]) -> bool:
-    """
-    Adds or updates planning details for a given task_id.
-    Details could include notes, due_date, materials, etc.
-    Returns True if successful, False if task_id is invalid (though we don't check that here yet).
-    """
-    _task_plans[task_id] = details
-    return True
-
-def get_plan_details(task_id: int) -> Dict[str, Any] | None:
-    """
-    Retrieves the planning details for a given task_id.
-    Returns the details dictionary or None if no plan exists for the task.
-    """
-    return _task_plans.get(task_id)
-
-def remove_plan(task_id: int) -> bool:
-    """
-    Removes the plan associated with a task_id.
-    Returns True if a plan was removed, False otherwise.
-    """
-    if task_id in _task_plans:
-        del _task_plans[task_id]
-        return True
-    return False
+# (Previous functions like add_plan_details, get_plan_details, remove_plan, clear_all_plans are now obsolete
+# in their old form as these details are part of the Task object itself.)
 
 def clear_all_plans():
-    """Clears all plans. Useful for testing."""
-    global _task_plans
-    _task_plans = {}
+    """
+    Placeholder. If any module-level plan storage were to be reintroduced
+    independent of tasks, this would clear it. Currently does nothing
+    as planning details are tied to tasks.
+    """
+    pass

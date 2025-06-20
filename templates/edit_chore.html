@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add New Chore - Chores Manager</title>
+    <title>Edit Chore: {{ chore.description }} - Chores Manager</title>
     <style>
         body { font-family: sans-serif; margin: 0; background-color: #f4f4f4; color: #333; }
         header { background-color: #333; color: #fff; padding: 10px 0; text-align: center; }
@@ -14,10 +14,14 @@
         .container { width: 60%; margin: 20px auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         h2 { color: #333; text-align: center; }
         form { display: flex; flex-direction: column; gap: 15px; }
-        label { font-weight: bold; }
-        input[type="text"] { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
-        button[type="submit"] { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
-        button[type="submit"]:hover { background-color: #218838; }
+        label { font-weight: bold; margin-top: 10px; }
+        input[type="text"], textarea, input[type="date"] { padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; width: 100%; box-sizing: border-box; }
+        textarea { min-height: 100px; resize: vertical; }
+        .form-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-start; }
+        button[type="submit"], .cancel-btn { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; text-decoration: none; text-align: center;}
+        .cancel-btn { background-color: #6c757d; }
+        button[type="submit"]:hover { background-color: #0056b3; }
+        .cancel-btn:hover { background-color: #545b62; }
         .flash-messages { list-style-type: none; padding: 0; margin-bottom: 15px; }
         .flash-messages li { padding: 10px; margin-bottom: 10px; border-radius: 4px; }
         .flash-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
@@ -38,7 +42,7 @@
     </header>
 
     <div class="container">
-        <h2>Add a New Chore</h2>
+        <h2>Edit Chore: {{ chore.description }}</h2>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -50,20 +54,23 @@
             {% endif %}
         {% endwith %}
 
-        <form method="POST" action="{{ url_for('add_chore_route') }}">
+        <form method="POST" action="{{ url_for('edit_chore_details_route', task_id=chore.id) }}">
             <div>
-                <label for="description">Chore Description:</label>
-                <input type="text" id="description" name="description" value="{{ description or '' }}" required style="width: 100%; box-sizing: border-box;">
+                <label for="description">Description:</label>
+                <input type="text" id="description" name="description" value="{{ chore.description }}" required>
             </div>
             <div>
-                <label for="notes">Notes (Optional):</label>
-                <textarea id="notes" name="notes" style="width: 100%; box-sizing: border-box; min-height: 80px;">{{ notes or '' }}</textarea>
+                <label for="notes">Notes:</label>
+                <textarea id="notes" name="notes">{{ chore.notes if chore.notes is not none else '' }}</textarea>
             </div>
             <div>
-                <label for="due_date">Due Date (Optional):</label>
-                <input type="date" id="due_date" name="due_date" value="{{ due_date or '' }}" style="width: 100%; box-sizing: border-box;">
+                <label for="due_date">Due Date:</label>
+                <input type="date" id="due_date" name="due_date" value="{{ chore.due_date.isoformat() if chore.due_date else '' }}">
             </div>
-            <button type="submit">Add Chore</button>
+            <div class="form-actions">
+                <button type="submit">Save Changes</button>
+                <a href="{{ url_for('chore_detail_route', task_id=chore.id) }}" class="cancel-btn">Cancel</a>
+            </div>
         </form>
     </div>
 
