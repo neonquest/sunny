@@ -26,7 +26,7 @@ def get_subtask_suggestions(chore_description: str) -> List[str]:
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro') # Or other suitable model
+        model = genai.GenerativeModel('gemini-2.5-flash') # Or other suitable model
 
         prompt = f"""
         Break down the following household chore into a short, numbered list of actionable sub-tasks.
