@@ -1,2 +1,3 @@
 Flask>=2.0
+google-generativeai>=0.4.0 # For Google Gemini API
 # Add other dependencies here as needed

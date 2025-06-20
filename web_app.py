@@ -228,18 +228,26 @@ def suggest_ai_subtasks_route(task_id):
         # Corrected: Call ai_assistant module directly
         suggested_descriptions = ai_assistant.get_subtask_suggestions(chore.description)
 
-        if not suggested_descriptions:
-            flash("The AI assistant couldn't come up with suggestions for this chore.", 'info')
+        # Check for specific API key error message from the assistant
+        api_key_error_msg = "AI features disabled: GOOGLE_API_KEY not set."
+        error_getting_suggestions_prefix = "Error getting AI suggestions:"
+
+        if suggested_descriptions and suggested_descriptions[0] == api_key_error_msg:
+            flash(api_key_error_msg + " Please set the environment variable.", 'error')
+        elif suggested_descriptions and suggested_descriptions[0].startswith(error_getting_suggestions_prefix):
+            flash(suggested_descriptions[0], 'error') # Show the specific error from AI module
+        elif not suggested_descriptions:
+            flash("The AI assistant couldn't come up with any new suggestions for this chore.", 'info')
         else:
             count = 0
             for desc in suggested_descriptions:
-                if tasks.add_sub_task(task_id, desc):
+                if tasks.add_sub_task(task_id, desc): # add_sub_task should ideally not fail if desc is valid
                     count += 1
             if count > 0:
                 flash(f"{count} sub-task(s) suggested by AI and added.", 'success')
             else:
-                # This might happen if all suggestions were empty strings, though mock prevents this.
-                flash("AI suggested tasks, but none could be added.", 'warning')
+                # This might happen if suggestions were empty or invalid, though unlikely with current parsing.
+                flash("AI provided suggestions, but none could be added as new sub-tasks.", 'warning')
 
     except Exception as e:
         # In a real scenario, log the error `e`
