@@ -234,9 +234,13 @@ def suggest_ai_subtasks_route(task_id):
         return redirect(url_for('view_chores_route'))
 
     try:
-        # This will call our mock AI for now
-        # Corrected: Call ai_assistant module directly
-        suggested_descriptions = ai_assistant.get_subtask_suggestions(chore.description)
+        existing_sub_tasks_objects = tasks.get_sub_tasks_for_task(task_id)
+        existing_sub_task_descriptions = [st['description'] for st in existing_sub_tasks_objects]
+
+        suggested_descriptions = ai_assistant.get_subtask_suggestions(
+            chore.description,
+            existing_subtask_descriptions=existing_sub_task_descriptions
+        )
 
         # Check for specific API key error message from the assistant
         api_key_error_msg = "AI features disabled: GOOGLE_API_KEY not set."
@@ -246,38 +250,39 @@ def suggest_ai_subtasks_route(task_id):
             flash(api_key_error_msg + " Please set the environment variable.", 'error')
         elif suggested_descriptions and suggested_descriptions[0].startswith(error_getting_suggestions_prefix):
             flash(suggested_descriptions[0], 'error') # Show the specific error from AI module
-        elif not suggested_descriptions:
-            flash("The AI assistant couldn't come up with any new suggestions for this chore.", 'info')
+        elif not suggested_descriptions: # This case now also covers if AI explicitly said "No new suggestions needed."
+            flash("The AI assistant provided no new suggestions for this chore.", 'info')
         else:
-            existing_sub_tasks = tasks.get_sub_tasks_for_task(task_id)
+            # De-duplication logic remains largely the same, but AI is now asked to pre-filter.
+            # This client-side check is a fallback/safety.
+            current_sub_tasks_for_dedup = tasks.get_sub_tasks_for_task(task_id) # Re-fetch to be absolutely sure
             existing_descriptions_normalized = {
-                st['description'].strip().lower() for st in existing_sub_tasks
+                st['description'].strip().lower() for st in current_sub_tasks_for_dedup
             }
 
             added_count = 0
             skipped_count = 0
 
-            for desc in suggested_descriptions:
-                normalized_desc = desc.strip().lower()
-                if normalized_desc and normalized_desc not in existing_descriptions_normalized:
-                    if tasks.add_sub_task(task_id, desc.strip()): # Add the original, non-normalized desc
+            for desc_ai in suggested_descriptions: # These are expected to be new from AI's perspective
+                normalized_desc_ai = desc_ai.strip().lower()
+                if normalized_desc_ai and normalized_desc_ai not in existing_descriptions_normalized:
+                    if tasks.add_sub_task(task_id, desc_ai.strip()):
                         added_count += 1
-                        existing_descriptions_normalized.add(normalized_desc) # Add to set to prevent adding multiple similar suggestions from AI list
-                elif normalized_desc: # It was a duplicate or empty after stripping
+                        # Add to our local set to handle duplicates within the *same* AI response batch
+                        existing_descriptions_normalized.add(normalized_desc_ai)
+                elif normalized_desc_ai:
                     skipped_count +=1
 
             message_parts = []
             if added_count > 0:
-                message_parts.append(f"{added_count} new sub-task(s) suggested by AI and added.")
+                message_parts.append(f"{added_count} new sub-task(s) added based on AI suggestions.")
             if skipped_count > 0:
-                message_parts.append(f"{skipped_count} AI suggestion(s) were duplicates or empty and skipped.")
+                message_parts.append(f"{skipped_count} AI suggestion(s) were duplicates of existing tasks or duplicates within the AI's own response, and were skipped.")
 
-            if message_parts:
+            if not message_parts and added_count == 0 : # No new tasks added, and no specific skips to report (e.g. AI returned empty list)
+                flash("AI suggestions processed, but no new, unique sub-tasks were added.", 'info')
+            elif message_parts:
                 flash(" ".join(message_parts), 'success' if added_count > 0 else 'info')
-            elif not suggested_descriptions: # Should be caught by earlier elif, but as a safeguard
-                 flash("The AI assistant couldn't come up with any new suggestions for this chore.", 'info')
-            else: # All suggestions were skipped
-                flash("All AI suggestions were already present or empty.", 'info')
 
     except Exception as e:
         # In a real scenario, log the error `e`
