@@ -360,10 +360,10 @@ class WebAppTests(unittest.TestCase):
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b"3 sub-task(s) suggested by AI and added.", response.data)
+            self.assertIn(b"3 new sub-task(s) suggested by AI and added.", response.data) # "new" added to message
 
             # Verify sub-tasks were added
-            updated_task = tasks.get_task_by_id(task.id)
+            updated_task = tasks.get_task_by_id(task.id) # This fetches from DB, including sub-tasks
             self.assertEqual(len(updated_task.sub_tasks), 3)
             self.assertEqual(updated_task.sub_tasks[0]['description'], "Clean kitchen")
             self.assertEqual(updated_task.sub_tasks[1]['description'], "Clean bathrooms")
@@ -423,6 +423,61 @@ class WebAppTests(unittest.TestCase):
 
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 0) # No sub-tasks should be added
+
+    def test_suggest_ai_subtasks_with_duplicates(self):
+        """Test AI suggestion with some duplicates and case variations."""
+        task = tasks.add_task("Maintain the garden")
+        # Add an existing sub-task
+        tasks.add_sub_task(task.id, "Water the plants") # Existing 1
+        tasks.add_sub_task(task.id, "Weed the flower beds") # Existing 2
+
+        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
+            mock_get_suggestions.return_value = [
+                "Mow the lawn",           # New
+                "Water the plants",       # Duplicate of existing 1
+                "  weed the flower beds  ", # Duplicate of existing 2 (case/space)
+                "Trim hedges",            # New
+                "  mow the lawn  "        # Duplicate of a new one from this AI batch (case/space)
+            ]
+
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            # Expected: "Mow the lawn" and "Trim hedges" are new (2).
+            # "Water the plants", "  weed the flower beds  ", "  mow the lawn  " are duplicates (3).
+            self.assertIn(b"2 new sub-task(s) suggested by AI and added.", response.data)
+            self.assertIn(b"3 AI suggestion(s) were duplicates or empty and skipped.", response.data)
+
+            updated_task = tasks.get_task_by_id(task.id) # This fetches the task with its sub_tasks list
+            self.assertEqual(len(updated_task.sub_tasks), 4) # 2 existing + 2 new
+
+            descriptions = {st['description'] for st in updated_task.sub_tasks}
+            self.assertIn("Water the plants", descriptions)
+            self.assertIn("Weed the flower beds", descriptions) # Original casing
+            self.assertIn("Mow the lawn", descriptions)     # Added with original AI casing
+            self.assertIn("Trim hedges", descriptions)      # Added with original AI casing
+
+            # Ensure "  weed the flower beds  " (from AI) was not added as a new item if "Weed the flower beds" existed.
+            # Ensure "  mow the lawn  " (from AI) was not added if "Mow the lawn" was already added from this batch.
+            # The current logic adds the first occurrence (e.g. "Mow the lawn") and skips subsequent normalized duplicates ("  mow the lawn  ").
+
+    def test_suggest_ai_subtasks_all_duplicates(self):
+        """Test AI suggestion when all suggestions are duplicates."""
+        task = tasks.add_task("Clean Room")
+        tasks.add_sub_task(task.id, "Make bed")
+        tasks.add_sub_task(task.id, "Dust surfaces")
+
+        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
+            mock_get_suggestions.return_value = [
+                "make bed",
+                "  DUST SURFACES  "
+            ]
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"2 AI suggestion(s) were duplicates or empty and skipped.", response.data)
+            self.assertNotIn(b"new sub-task(s) suggested by AI and added.", response.data) # No new tasks added
+
+            updated_task = tasks.get_task_by_id(task.id)
+            self.assertEqual(len(updated_task.sub_tasks), 2) # Should remain 2
 
 
 if __name__ == '__main__':
