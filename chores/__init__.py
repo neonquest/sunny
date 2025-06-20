@@ -3,5 +3,6 @@
 from . import tasks
 from . import planning
 from . import ai_assistant
+from . import database
 
-__all__ = ['tasks', 'planning', 'ai_assistant']
+__all__ = ['tasks', 'planning', 'ai_assistant', 'database']

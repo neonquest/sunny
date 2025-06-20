@@ -1,8 +1,14 @@
 from flask import Flask, render_template, url_for, request, redirect, flash
-from chores import tasks, planning, ai_assistant # Import the tasks, planning, and ai_assistant modules
+from chores import tasks, planning, ai_assistant, database # Import modules
 
 app = Flask(__name__)
 app.secret_key = 'your secret key' # Needed for flashing messages
+
+# Initialize the database (create tables if they don't exist)
+# This should ideally be run once. For simple apps, doing it here is okay.
+# For more complex apps, consider Flask CLI commands or app factory pattern.
+with app.app_context(): # Ensures DB operations have app context if needed by extensions (not strictly for sqlite3)
+    database.init_db()
 
 # Sample data for initial testing if tasks module is not fully populated
 # tasks.clear_all_tasks() # Clear previous tasks if any from prior runs
@@ -158,13 +164,15 @@ def toggle_sub_task_route(task_id, sub_task_id):
     chore = tasks.get_task_by_id(task_id)
     if not chore:
         flash(f"Chore with ID {task_id} not found.", 'error')
-        return redirect(url_for('view_chores_route'))
+        return redirect(url_for('view_chores_route')) # Parent chore must exist
 
-    sub_task = tasks.get_sub_task_by_id(chore, sub_task_id)
-    if not sub_task:
+    # With DB, sub_task_id is globally unique, so we don't need parent chore object to find it.
+    sub_task = tasks.get_sub_task_by_id_from_db(sub_task_id)
+    if not sub_task or sub_task['task_id'] != task_id: # Also ensure it belongs to the correct task
         flash(f"Sub-task with ID {sub_task_id} not found for chore {task_id}.", 'error')
     else:
-        updated_sub_task = tasks.update_sub_task(task_id, sub_task_id, completed=not sub_task['completed'])
+        # tasks.update_sub_task now takes only sub_task_id and new values
+        updated_sub_task = tasks.update_sub_task(sub_task_id, completed=not sub_task['completed'])
         if updated_sub_task:
             status_text = "completed" if updated_sub_task['completed'] else "pending"
             flash(f"Sub-task '{updated_sub_task['description']}' marked as {status_text}.", 'success')
@@ -180,13 +188,15 @@ def delete_sub_task_route(task_id, sub_task_id):
         return redirect(url_for('view_chores_route'))
 
     # Need to get sub-task description for flash message before deleting
-    sub_task = tasks.get_sub_task_by_id(chore, sub_task_id)
-    if not sub_task:
-         flash(f"Sub-task with ID {sub_task_id} not found.", 'error')
-    elif tasks.delete_sub_task(task_id, sub_task_id):
+    sub_task = tasks.get_sub_task_by_id_from_db(sub_task_id)
+    if not sub_task or sub_task['task_id'] != task_id: # Ensure it belongs to the correct task
+         flash(f"Sub-task with ID {sub_task_id} not found for chore {task_id}.", 'error')
+    # tasks.delete_sub_task now only takes sub_task_id
+    elif tasks.delete_sub_task(sub_task_id):
         flash(f"Sub-task '{sub_task['description']}' deleted successfully.", 'success')
     else:
-        flash("Failed to delete sub-task.", 'error') # Should not happen if sub_task was found
+        # This case should be rare if sub_task was found, implies DB error during delete
+        flash(f"Failed to delete sub-task '{sub_task['description']}'.", 'error')
     return redirect(url_for('chore_detail_route', task_id=task_id))
 
 @app.route('/chore/<int:task_id>/sub_task/<int:sub_task_id>/move/<direction>', methods=['POST'])
@@ -199,19 +209,19 @@ def move_sub_task_route(task_id, sub_task_id, direction):
     chore = tasks.get_task_by_id(task_id)
     if not chore:
         flash(f"Chore with ID {task_id} not found.", 'error')
-        return redirect(url_for('view_chores_route')) # Or back to chore_detail if appropriate
+        return redirect(url_for('view_chores_route'))
 
-    sub_task = tasks.get_sub_task_by_id(chore, sub_task_id)
-    if not sub_task:
-        flash(f"Sub-task with ID {sub_task_id} not found.", 'error')
+    # Fetch sub-task by its own ID to ensure it exists before attempting to move.
+    # The tasks.move_sub_task function will also verify it belongs to task_id.
+    sub_task = tasks.get_sub_task_by_id_from_db(sub_task_id)
+    if not sub_task or sub_task['task_id'] != task_id: # Ensure it belongs to the correct task
+        flash(f"Sub-task with ID {sub_task_id} not found for chore {task_id}.", 'error')
         return redirect(url_for('chore_detail_route', task_id=task_id))
 
-    if tasks.move_sub_task(task_id, sub_task_id, direction):
+    if tasks.move_sub_task(task_id, sub_task_id, direction): # move_sub_task itself checks parent task_id implicitly
         flash(f"Sub-task '{sub_task['description']}' moved {direction}.", 'success')
     else:
-        # This might happen if trying to move first item up, or last item down,
-        # or if sub-task/task not found (though checked above).
-        flash(f"Could not move sub-task '{sub_task['description']}'. It might be at the limit.", 'warning')
+        flash(f"Could not move sub-task '{sub_task['description']}'. It might be at the limit or an error occurred.", 'warning')
 
     return redirect(url_for('chore_detail_route', task_id=task_id))
 
