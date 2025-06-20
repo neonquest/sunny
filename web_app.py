@@ -249,15 +249,35 @@ def suggest_ai_subtasks_route(task_id):
         elif not suggested_descriptions:
             flash("The AI assistant couldn't come up with any new suggestions for this chore.", 'info')
         else:
-            count = 0
+            existing_sub_tasks = tasks.get_sub_tasks_for_task(task_id)
+            existing_descriptions_normalized = {
+                st['description'].strip().lower() for st in existing_sub_tasks
+            }
+
+            added_count = 0
+            skipped_count = 0
+
             for desc in suggested_descriptions:
-                if tasks.add_sub_task(task_id, desc): # add_sub_task should ideally not fail if desc is valid
-                    count += 1
-            if count > 0:
-                flash(f"{count} sub-task(s) suggested by AI and added.", 'success')
-            else:
-                # This might happen if suggestions were empty or invalid, though unlikely with current parsing.
-                flash("AI provided suggestions, but none could be added as new sub-tasks.", 'warning')
+                normalized_desc = desc.strip().lower()
+                if normalized_desc and normalized_desc not in existing_descriptions_normalized:
+                    if tasks.add_sub_task(task_id, desc.strip()): # Add the original, non-normalized desc
+                        added_count += 1
+                        existing_descriptions_normalized.add(normalized_desc) # Add to set to prevent adding multiple similar suggestions from AI list
+                elif normalized_desc: # It was a duplicate or empty after stripping
+                    skipped_count +=1
+
+            message_parts = []
+            if added_count > 0:
+                message_parts.append(f"{added_count} new sub-task(s) suggested by AI and added.")
+            if skipped_count > 0:
+                message_parts.append(f"{skipped_count} AI suggestion(s) were duplicates or empty and skipped.")
+
+            if message_parts:
+                flash(" ".join(message_parts), 'success' if added_count > 0 else 'info')
+            elif not suggested_descriptions: # Should be caught by earlier elif, but as a safeguard
+                 flash("The AI assistant couldn't come up with any new suggestions for this chore.", 'info')
+            else: # All suggestions were skipped
+                flash("All AI suggestions were already present or empty.", 'info')
 
     except Exception as e:
         # In a real scenario, log the error `e`
