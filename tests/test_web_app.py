@@ -285,6 +285,57 @@ class WebAppTests(unittest.TestCase):
         kept_sub_task_html_part = f"<span>\n                                    {sub_task_to_keep['description']}\n                                    <em>(ID: {sub_task_to_keep['id']})</em>"
         self.assertIn(bytes(kept_sub_task_html_part, 'utf-8'), response.data)
 
+    def test_move_sub_task_web(self):
+        """Test moving sub-tasks up and down via web interface."""
+        task = tasks.add_task("Parent for Web Sub-task Reorder")
+        st1 = tasks.add_sub_task(task.id, "SubTask Web One")
+        st2 = tasks.add_sub_task(task.id, "SubTask Web Two")
+        st3 = tasks.add_sub_task(task.id, "SubTask Web Three")
+
+        # Initial order on page: st1, st2, st3
+        response = self.client.get(f'/chore/{task.id}')
+        self.assertEqual(response.status_code, 200)
+
+        # Ensure order before move using regex to find list items and their content.
+        # This is more robust than checking fixed string positions if minor HTML changes.
+        import re
+        page_content = response.data.decode('utf-8')
+
+        # Find all sub-task descriptions in order of appearance
+        sub_task_descriptions_in_html = re.findall(r'<li class="[^"]*".*?>\s*<span>\s*([^<]+?)\s*<em>\(ID: \d+\)</em>', page_content, re.DOTALL)
+
+        self.assertEqual(sub_task_descriptions_in_html, ["SubTask Web One", "SubTask Web Two", "SubTask Web Three"])
+
+        # Move st2 up (st1, st2, st3 -> st2, st1, st3)
+        response = self.client.post(f'/chore/{task.id}/sub_task/{st2["id"]}/move/up', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Sub-task &#39;SubTask Web Two&#39; moved up.", response.data)
+
+        page_content_after_move_up = response.data.decode('utf-8')
+        sub_task_descriptions_after_move_up = re.findall(r'<li class="[^"]*".*?>\s*<span>\s*([^<]+?)\s*<em>\(ID: \d+\)</em>', page_content_after_move_up, re.DOTALL)
+        self.assertEqual(sub_task_descriptions_after_move_up, ["SubTask Web Two", "SubTask Web One", "SubTask Web Three"])
+
+        # Move st3 (now at original st3 position, which is index 2) down.
+        # After st2 moved up, list is st2, st1, st3. We want to move st3 (last) down. This should fail.
+        # Let's move st1 (now at index 1) down. (st2, st1, st3 -> st2, st3, st1)
+        response = self.client.post(f'/chore/{task.id}/sub_task/{st1["id"]}/move/down', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Sub-task &#39;SubTask Web One&#39; moved down.", response.data)
+
+        page_content_after_move_down = response.data.decode('utf-8')
+        sub_task_descriptions_after_move_down = re.findall(r'<li class="[^"]*".*?>\s*<span>\s*([^<]+?)\s*<em>\(ID: \d+\)</em>', page_content_after_move_down, re.DOTALL)
+        self.assertEqual(sub_task_descriptions_after_move_down, ["SubTask Web Two", "SubTask Web Three", "SubTask Web One"])
+
+        # Try to move st2 (now first) up - should be disabled/fail gracefully
+        response = self.client.post(f'/chore/{task.id}/sub_task/{st2["id"]}/move/up', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Could not move sub-task &#39;SubTask Web Two&#39;. It might be at the limit.", response.data)
+
+        # Try to move st1 (now last) down - should be disabled/fail gracefully
+        response = self.client.post(f'/chore/{task.id}/sub_task/{st1["id"]}/move/down', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Could not move sub-task &#39;SubTask Web One&#39;. It might be at the limit.", response.data)
+
 
 if __name__ == '__main__':
     unittest.main()

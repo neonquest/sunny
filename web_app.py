@@ -189,6 +189,32 @@ def delete_sub_task_route(task_id, sub_task_id):
         flash("Failed to delete sub-task.", 'error') # Should not happen if sub_task was found
     return redirect(url_for('chore_detail_route', task_id=task_id))
 
+@app.route('/chore/<int:task_id>/sub_task/<int:sub_task_id>/move/<direction>', methods=['POST'])
+def move_sub_task_route(task_id, sub_task_id, direction):
+    """Handles moving a sub-task up or down."""
+    if direction not in ['up', 'down']:
+        flash("Invalid move direction specified.", 'error')
+        return redirect(url_for('chore_detail_route', task_id=task_id))
+
+    chore = tasks.get_task_by_id(task_id)
+    if not chore:
+        flash(f"Chore with ID {task_id} not found.", 'error')
+        return redirect(url_for('view_chores_route')) # Or back to chore_detail if appropriate
+
+    sub_task = tasks.get_sub_task_by_id(chore, sub_task_id)
+    if not sub_task:
+        flash(f"Sub-task with ID {sub_task_id} not found.", 'error')
+        return redirect(url_for('chore_detail_route', task_id=task_id))
+
+    if tasks.move_sub_task(task_id, sub_task_id, direction):
+        flash(f"Sub-task '{sub_task['description']}' moved {direction}.", 'success')
+    else:
+        # This might happen if trying to move first item up, or last item down,
+        # or if sub-task/task not found (though checked above).
+        flash(f"Could not move sub-task '{sub_task['description']}'. It might be at the limit.", 'warning')
+
+    return redirect(url_for('chore_detail_route', task_id=task_id))
+
 
 if __name__ == '__main__':
     app.run(debug=True)
