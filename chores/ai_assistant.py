@@ -26,12 +26,13 @@ def get_subtask_suggestions(chore_description: str, existing_subtask_description
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash') # Or other suitable model
 
         existing_tasks_prompt_part = "There are no existing sub-tasks yet."
         if existing_subtask_descriptions:
             existing_tasks_list_str = "\n".join([f"- {desc}" for desc in existing_subtask_descriptions])
             existing_tasks_prompt_part = f"The following sub-tasks already exist for this chore:\n{existing_tasks_list_str}"
+
 
         prompt = f"""
         You are a helpful assistant for breaking down household chores.
