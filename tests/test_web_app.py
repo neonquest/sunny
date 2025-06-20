@@ -375,7 +375,7 @@ class WebAppTests(unittest.TestCase):
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b"The AI assistant couldn&#39;t come up with suggestions for this chore.", response.data)
+            self.assertIn(b"The AI assistant couldn&#39;t come up with any new suggestions for this chore.", response.data)
 
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 0) # No sub-tasks should be added
@@ -393,6 +393,28 @@ class WebAppTests(unittest.TestCase):
 
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 0)
+
+    def test_suggest_ai_subtasks_api_key_missing(self):
+        """Test AI sub-task suggestion when GOOGLE_API_KEY is not set."""
+        task = tasks.add_task("Chore with missing API key")
+
+        # We want to test the behavior of get_subtask_suggestions when os.environ.get returns None
+        # So, we patch os.environ.get directly.
+        with mock.patch('os.environ.get') as mock_env_get:
+            mock_env_get.return_value = None # Simulate GOOGLE_API_KEY not being set
+
+            # We also need to ensure that 'chores.ai_assistant' is reloaded or its
+            # get_subtask_suggestions reflects this change if api_key is checked at module load.
+            # However, my current ai_assistant.py checks os.environ.get() inside the function,
+            # so mocking os.environ.get should be sufficient.
+
+            response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            # The flash message comes from web_app.py after checking the specific return from ai_assistant.py
+            self.assertIn(b"AI features disabled: GOOGLE_API_KEY not set. Please set the environment variable.", response.data)
+
+            updated_task = tasks.get_task_by_id(task.id)
+            self.assertEqual(len(updated_task.sub_tasks), 0) # No sub-tasks should be added
 
 
 if __name__ == '__main__':
