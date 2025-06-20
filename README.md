@@ -11,7 +11,12 @@ A simple application to manage household chores.
 
 ## Setup
 
-(Instructions to be added)
+1.  **Clone the repository (if applicable).**
+2.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  **Database:** The application uses an SQLite database (`chores_app.db`) which will be automatically created in the project root directory when the web application is first run (or when `chores/database.py` is run directly).
 
 ## Running the Web Application
 

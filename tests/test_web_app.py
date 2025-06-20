@@ -3,23 +3,31 @@ from unittest import mock # Import mock
 from web_app import app # Import the Flask app instance
 from chores import tasks, planning
 
+from chores import database # Import database module
+
 class WebAppTests(unittest.TestCase):
 
-    def setUp(self):
-        """Set up a test client for the Flask application."""
+    @classmethod
+    def setUpClass(cls):
+        """Initialize the database once for all tests in this class."""
+        # Ensure Flask app is configured for testing before DB init if DB relies on app context
         app.config['TESTING'] = True
-        app.config['WTF_CSRF_ENABLED'] = False # Disable CSRF for testing forms if applicable
-        app.secret_key = 'test_secret_key' # Consistent secret key for tests
-        self.client = app.test_client()
+        app.config['WTF_CSRF_ENABLED'] = False
+        app.secret_key = 'test_secret_key'
+        # It's important that init_db() is called after app context might be needed,
+        # or if it creates the db file path based on app.instance_path, etc.
+        # For our simple setup, direct call is okay.
+        database.init_db()
 
-        # Clear any existing tasks and plans before each test
-        tasks.clear_all_tasks()
-        planning.clear_all_plans()
+    def setUp(self):
+        """Set up a test client and clear DB before each test."""
+        # App config is set in setUpClass or here if preferred per test
+        self.client = app.test_client()
+        database.clear_db_for_testing() # Clear data from tables
 
     def tearDown(self):
-        """Clean up after each test."""
-        tasks.clear_all_tasks()
-        planning.clear_all_plans()
+        """Clear DB after each test."""
+        database.clear_db_for_testing() # Clear data from tables
 
     def test_home_page_loads(self):
         """Test if the home page loads correctly."""
@@ -248,7 +256,7 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post(f'/chore/{task.id}/sub_task/{sub_task["id"]}/toggle', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(bytes(f"Sub-task &#39;{sub_task['description']}&#39; marked as completed.", 'utf-8'), response.data)
-        updated_sub_task_obj = tasks.get_sub_task_by_id(tasks.get_task_by_id(task.id), sub_task['id'])
+        updated_sub_task_obj = tasks.get_sub_task_by_id_from_db(sub_task['id']) # Corrected call
         self.assertTrue(updated_sub_task_obj['completed'])
         self.assertIn(b"Mark Pending", response.data) # Button text should change
 
@@ -256,7 +264,7 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post(f'/chore/{task.id}/sub_task/{sub_task["id"]}/toggle', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(bytes(f"Sub-task &#39;{sub_task['description']}&#39; marked as pending.", 'utf-8'), response.data)
-        updated_sub_task_obj = tasks.get_sub_task_by_id(tasks.get_task_by_id(task.id), sub_task['id'])
+        updated_sub_task_obj = tasks.get_sub_task_by_id_from_db(sub_task['id']) # Corrected call
         self.assertFalse(updated_sub_task_obj['completed'])
         self.assertIn(b"Mark Complete", response.data) # Button text should change back
 
@@ -330,12 +338,12 @@ class WebAppTests(unittest.TestCase):
         # Try to move st2 (now first) up - should be disabled/fail gracefully
         response = self.client.post(f'/chore/{task.id}/sub_task/{st2["id"]}/move/up', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Could not move sub-task &#39;SubTask Web Two&#39;. It might be at the limit.", response.data)
+        self.assertIn(b"Could not move sub-task &#39;SubTask Web Two&#39;. It might be at the limit or an error occurred.", response.data)
 
         # Try to move st1 (now last) down - should be disabled/fail gracefully
         response = self.client.post(f'/chore/{task.id}/sub_task/{st1["id"]}/move/down', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Could not move sub-task &#39;SubTask Web One&#39;. It might be at the limit.", response.data)
+        self.assertIn(b"Could not move sub-task &#39;SubTask Web One&#39;. It might be at the limit or an error occurred.", response.data)
 
 # --- Tests for AI Sub-task Suggestions ---
     def test_suggest_ai_subtasks(self):
