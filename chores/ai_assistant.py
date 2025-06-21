@@ -26,7 +26,7 @@ def get_subtask_suggestions(chore_description: str, existing_subtask_description
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-2.5-pro')
 
         existing_tasks_prompt_part = "There are no existing sub-tasks yet."
         if existing_subtask_descriptions:
