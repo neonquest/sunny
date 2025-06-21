@@ -1,5 +1,6 @@
 from flask import Flask, render_template, url_for, request, redirect, flash
 from chores import tasks, planning, ai_assistant, database # Import modules
+import urllib.parse # For URL encoding
 
 app = Flask(__name__)
 app.secret_key = 'your secret key' # Needed for flashing messages
@@ -9,6 +10,21 @@ app.secret_key = 'your secret key' # Needed for flashing messages
 # For more complex apps, consider Flask CLI commands or app factory pattern.
 with app.app_context(): # Ensures DB operations have app context if needed by extensions (not strictly for sqlite3)
     database.init_db()
+
+@app.context_processor
+def utility_processor():
+    def generate_amazon_search_url(material_name):
+        encoded_material = urllib.parse.quote_plus(material_name)
+        return f"https://www.amazon.com/s?k={encoded_material}"
+
+    def generate_home_depot_search_url(material_name):
+        encoded_material = urllib.parse.quote_plus(material_name)
+        return f"https://www.homedepot.com/s/{encoded_material}"
+
+    return dict(
+        amazon_search_url=generate_amazon_search_url,
+        home_depot_search_url=generate_home_depot_search_url
+    )
 
 # Sample data for initial testing if tasks module is not fully populated
 # tasks.clear_all_tasks() # Clear previous tasks if any from prior runs
@@ -35,12 +51,13 @@ def add_chore_route():
         description = request.form.get('description')
         notes = request.form.get('notes', '')
         due_date_str = request.form.get('due_date')
+        materials_needed_text = request.form.get('materials_needed', '') # Get materials
 
         if not description:
             flash('Chore description cannot be empty.', 'error')
-            # Re-render form with previously entered values if any
             return render_template('add_chore.html', title="Add New Chore",
-                                   description=description, notes=notes, due_date=due_date_str), 400
+                                   description=description, notes=notes, due_date=due_date_str,
+                                   form_materials_text=materials_needed_text), 400 # Use consistent var name
 
         due_date_obj = None
         if due_date_str:
@@ -50,14 +67,21 @@ def add_chore_route():
             except ValueError:
                 flash("Invalid due date format. Please use YYYY-MM-DD.", 'error')
                 return render_template('add_chore.html', title="Add New Chore",
-                                       description=description, notes=notes, due_date=due_date_str), 400
+                                       description=description, notes=notes, due_date=due_date_str,
+                                       form_materials_text=materials_needed_text), 400 # Use consistent var name
 
-        new_task = tasks.add_task(description=description, notes=notes, due_date=due_date_obj)
+        new_task = tasks.add_task(
+            description=description,
+            notes=notes,
+            due_date=due_date_obj,
+            materials_needed_text=materials_needed_text # Pass to tasks.add_task
+        )
         flash(f"Chore '{new_task.description}' added successfully!", 'success')
-        return redirect(url_for('view_chores_route')) # Or redirect to the new chore's detail page: redirect(url_for('chore_detail_route', task_id=new_task.id))
+        return redirect(url_for('view_chores_route'))
 
-    # For GET request, just show the form, passing empty values
-    return render_template('add_chore.html', title="Add New Chore")
+    # For GET request, just show the form
+    return render_template('add_chore.html', title="Add New Chore",
+                           description="", notes="", due_date="", materials_needed="") # Pass empty for GET
 
 @app.route('/update_chore_status/<int:task_id>', methods=['POST'])
 def update_chore_status_route(task_id):
@@ -116,12 +140,15 @@ def edit_chore_details_route(task_id):
 
     if request.method == 'POST':
         description = request.form.get('description')
-        notes = request.form.get('notes', '') # Default to empty string if not provided
+        notes = request.form.get('notes', '')
         due_date_str = request.form.get('due_date')
+        materials_text = request.form.get('materials_needed', '') # Raw text from textarea
 
         if not description:
             flash("Description cannot be empty.", 'error')
-            return render_template('edit_chore.html', chore=chore, title=f"Edit {chore.description}")
+            return render_template('edit_chore.html', chore=chore, title=f"Edit {chore.description}",
+                                   description=description, notes=notes, due_date=due_date_str,
+                                   form_materials_text=materials_text) # Use consistent var name
 
         due_date_obj = None
         if due_date_str:
@@ -130,9 +157,17 @@ def edit_chore_details_route(task_id):
                 due_date_obj = datetime.strptime(due_date_str, '%Y-%m-%d').date()
             except ValueError:
                 flash("Invalid due date format. Please use YYYY-MM-DD.", 'error')
-                return render_template('edit_chore.html', chore=chore, title=f"Edit {chore.description}")
+                return render_template('edit_chore.html', chore=chore, title=f"Edit {chore.description}",
+                                       description=description, notes=notes, due_date=due_date_str,
+                                       form_materials_text=materials_text) # Use consistent var name
 
-        updated_chore = tasks.update_task_details(task_id, description=description, notes=notes, due_date=due_date_obj)
+        updated_chore = tasks.update_task_details(
+            task_id,
+            description=description,
+            notes=notes,
+            due_date=due_date_obj,
+            materials_needed_text=materials_text # Pass as raw text
+        )
         if updated_chore:
             flash(f"Chore '{updated_chore.description}' updated successfully!", 'success')
             return redirect(url_for('chore_detail_route', task_id=task_id))
@@ -234,55 +269,102 @@ def suggest_ai_subtasks_route(task_id):
         return redirect(url_for('view_chores_route'))
 
     try:
-        existing_sub_tasks_objects = tasks.get_sub_tasks_for_task(task_id)
+        existing_sub_tasks_objects = tasks.get_sub_tasks_for_task(task_id) # List of dicts
         existing_sub_task_descriptions = [st['description'] for st in existing_sub_tasks_objects]
 
-        suggested_descriptions = ai_assistant.get_subtask_suggestions(
+        ai_response = ai_assistant.get_subtask_and_material_suggestions( # Renamed function
             chore.description,
             existing_subtask_descriptions=existing_sub_task_descriptions
         )
 
-        # Check for specific API key error message from the assistant
+        suggested_sub_task_descs = ai_response.get('sub_tasks', [])
+        suggested_material_names = ai_response.get('materials', [])
+
+        # Check for specific API key error message or other errors from the assistant (now in sub_tasks list)
         api_key_error_msg = "AI features disabled: GOOGLE_API_KEY not set."
         error_getting_suggestions_prefix = "Error getting AI suggestions:"
 
-        if suggested_descriptions and suggested_descriptions[0] == api_key_error_msg:
+        flash_messages_parts = []
+        overall_status_is_error = False
+
+        if suggested_sub_task_descs and suggested_sub_task_descs[0] == api_key_error_msg:
             flash(api_key_error_msg + " Please set the environment variable.", 'error')
-        elif suggested_descriptions and suggested_descriptions[0].startswith(error_getting_suggestions_prefix):
-            flash(suggested_descriptions[0], 'error') # Show the specific error from AI module
-        elif not suggested_descriptions: # This case now also covers if AI explicitly said "No new suggestions needed."
-            flash("The AI assistant provided no new suggestions for this chore.", 'info')
-        else:
-            # De-duplication logic remains largely the same, but AI is now asked to pre-filter.
-            # This client-side check is a fallback/safety.
-            current_sub_tasks_for_dedup = tasks.get_sub_tasks_for_task(task_id) # Re-fetch to be absolutely sure
-            existing_descriptions_normalized = {
-                st['description'].strip().lower() for st in current_sub_tasks_for_dedup
-            }
+            overall_status_is_error = True
+        elif suggested_sub_task_descs and suggested_sub_task_descs[0].startswith(error_getting_suggestions_prefix):
+            flash(suggested_sub_task_descs[0], 'error') # Show the specific error from AI module
+            overall_status_is_error = True
 
-            added_count = 0
-            skipped_count = 0
+        if not overall_status_is_error:
+            added_st_count = 0
+            skipped_st_count = 0
+            added_st_count = 0
+            skipped_st_count = 0
+            added_mat_count = 0
+            skipped_mat_count = 0
 
-            for desc_ai in suggested_descriptions: # These are expected to be new from AI's perspective
-                normalized_desc_ai = desc_ai.strip().lower()
-                if normalized_desc_ai and normalized_desc_ai not in existing_descriptions_normalized:
-                    if tasks.add_sub_task(task_id, desc_ai.strip()):
-                        added_count += 1
-                        # Add to our local set to handle duplicates within the *same* AI response batch
-                        existing_descriptions_normalized.add(normalized_desc_ai)
-                elif normalized_desc_ai:
-                    skipped_count +=1
+            # Process Sub-tasks
+            if suggested_sub_task_descs:
+                current_sub_tasks_for_dedup = tasks.get_sub_tasks_for_task(task_id)
+                existing_desc_normalized_set = {
+                    st['description'].strip().lower() for st in current_sub_tasks_for_dedup
+                }
+                for desc_ai in suggested_sub_task_descs:
+                    normalized_desc_ai = desc_ai.strip().lower()
+                    if normalized_desc_ai and normalized_desc_ai not in existing_desc_normalized_set:
+                        if tasks.add_sub_task(task_id, desc_ai.strip()):
+                            added_st_count += 1
+                            existing_desc_normalized_set.add(normalized_desc_ai)
+                    elif normalized_desc_ai:
+                        skipped_st_count +=1
 
-            message_parts = []
-            if added_count > 0:
-                message_parts.append(f"{added_count} new sub-task(s) added based on AI suggestions.")
-            if skipped_count > 0:
-                message_parts.append(f"{skipped_count} AI suggestion(s) were duplicates of existing tasks or duplicates within the AI's own response, and were skipped.")
+                if added_st_count > 0:
+                    flash_messages_parts.append(f"{added_st_count} new sub-task(s) added.")
+                if skipped_st_count > 0:
+                    flash_messages_parts.append(f"{skipped_st_count} sub-task suggestion(s) were duplicates/empty and skipped.")
+                if not suggested_sub_task_descs and not added_st_count and not skipped_st_count: # AI returned empty list explicitly
+                     flash_messages_parts.append("AI provided no new sub-task suggestions.")
 
-            if not message_parts and added_count == 0 : # No new tasks added, and no specific skips to report (e.g. AI returned empty list)
-                flash("AI suggestions processed, but no new, unique sub-tasks were added.", 'info')
-            elif message_parts:
-                flash(" ".join(message_parts), 'success' if added_count > 0 else 'info')
+
+            # Process Materials
+            if suggested_material_names:
+                # Fetch existing materials for the chore (task.materials_needed is a list of strings)
+                # The chore object was fetched at the beginning of the route.
+                # Its materials_needed field should be up-to-date if we only add,
+                # but if we want to merge/replace, fetching from DB is safer.
+                # For simplicity, let's assume chore.materials_needed is what we work with.
+                # In tasks.py, materials_needed is stored as a newline-separated string.
+
+                current_materials_text = chore.materials_needed # This is a list of strings from _row_to_task
+                existing_materials_normalized_set = {m.strip().lower() for m in current_materials_text}
+
+                added_mat_count = 0
+                skipped_mat_count = 0
+                new_materials_to_add_to_task_object = []
+
+                for mat_ai in suggested_material_names:
+                    normalized_mat_ai = mat_ai.strip().lower()
+                    if normalized_mat_ai and normalized_mat_ai not in existing_materials_normalized_set:
+                        new_materials_to_add_to_task_object.append(mat_ai.strip())
+                        existing_materials_normalized_set.add(normalized_mat_ai) # for de-dup within AI batch
+                        added_mat_count += 1
+                    elif normalized_mat_ai:
+                        skipped_mat_count += 1
+
+                if new_materials_to_add_to_task_object:
+                    # Append new materials to the existing ones
+                    final_materials_list = current_materials_text + new_materials_to_add_to_task_object
+                    # Convert list to newline-separated string for DB update
+                    final_materials_text = "\n".join(final_materials_list)
+                    tasks.update_task_details(task_id, materials_needed_text=final_materials_text)
+                    flash_messages_parts.append(f"{added_mat_count} new material(s) added.")
+
+                if skipped_mat_count > 0:
+                     flash_messages_parts.append(f"{skipped_mat_count} material suggestion(s) were duplicates/empty and skipped.")
+
+            if not flash_messages_parts: # If no specific messages were generated (e.g. AI returned empty for both)
+                 flash("AI processing complete. No new sub-tasks or materials were added.", 'info')
+            else:
+                 flash(" ".join(flash_messages_parts), 'success' if (added_st_count > 0 or added_mat_count > 0) else 'info')
 
     except Exception as e:
         # In a real scenario, log the error `e`

@@ -33,24 +33,28 @@ class TestTaskManagement(unittest.TestCase):
         self.assertEqual(task_obj.notes, "")
         self.assertIsNone(task_obj.due_date)
         self.assertEqual(task_obj.sub_tasks, [])
-        self.assertIsNone(task_obj.id) # ID will be None until added by add_task
+        self.assertEqual(task_obj.materials_needed, []) # Check new field
+        self.assertIsNone(task_obj.id)
 
     def test_create_task_object_with_all_fields(self):
         """Test Task object creation with all fields specified."""
         test_date = date(2024, 1, 15)
         sub_tasks_list = [{'id': 1, 'description': 'sub1', 'completed': False}]
+        materials_list = ["Wood", "Nails"]
         task_obj = tasks.Task(
             description="Full Task",
             status="in progress",
             notes="Important notes here.",
             due_date=test_date,
-            sub_tasks=sub_tasks_list
+            sub_tasks=sub_tasks_list,
+            materials_needed=materials_list # Check new field
         )
         self.assertEqual(task_obj.description, "Full Task")
         self.assertEqual(task_obj.status, "in progress")
         self.assertEqual(task_obj.notes, "Important notes here.")
         self.assertEqual(task_obj.due_date, test_date)
         self.assertEqual(task_obj.sub_tasks, sub_tasks_list)
+        self.assertEqual(task_obj.materials_needed, materials_list) # Check new field
 
 
     def test_add_task_basic(self):
@@ -62,23 +66,40 @@ class TestTaskManagement(unittest.TestCase):
         self.assertEqual(task.notes, "")       # Default notes
         self.assertIsNone(task.due_date)       # Default due_date
         self.assertEqual(task.sub_tasks, [])   # Default sub_tasks
+        self.assertEqual(task.materials_needed, []) # Default materials
         all_db_tasks = tasks.get_all_tasks()
         self.assertEqual(len(all_db_tasks), 1)
         # Compare attributes of the fetched task with the added task's expected attributes
-        self.assertEqual(all_db_tasks[0].id, task.id)
-        self.assertEqual(all_db_tasks[0].description, task.description)
-        self.assertEqual(all_db_tasks[0].notes, task.notes)
-        self.assertEqual(all_db_tasks[0].due_date, task.due_date)
-        self.assertEqual(all_db_tasks[0].status, task.status)
+        fetched_task = all_db_tasks[0]
+        self.assertEqual(fetched_task.id, task.id)
+        self.assertEqual(fetched_task.description, task.description)
+        self.assertEqual(fetched_task.notes, task.notes)
+        self.assertEqual(fetched_task.due_date, task.due_date)
+        self.assertEqual(fetched_task.status, task.status)
+        self.assertEqual(fetched_task.materials_needed, task.materials_needed)
 
 
     def test_add_task_with_details(self):
-        """Test adding a task with notes and due date."""
+        """Test adding a task with notes, due date, and materials."""
         test_date = date(2024, 5, 20)
-        task = tasks.add_task("Plan vacation", notes="Research destinations", due_date=test_date)
-        self.assertEqual(task.description, "Plan vacation")
-        self.assertEqual(task.notes, "Research destinations")
+        materials_text = "Tent\nSleeping Bag\nCooler"
+        materials_list = ["Tent", "Sleeping Bag", "Cooler"]
+
+        task = tasks.add_task(
+            "Camping Trip Prep",
+            notes="Book campsite, check weather",
+            due_date=test_date,
+            materials_needed_text=materials_text
+        )
+        self.assertEqual(task.description, "Camping Trip Prep")
+        self.assertEqual(task.notes, "Book campsite, check weather")
         self.assertEqual(task.due_date, test_date)
+        self.assertEqual(task.materials_needed, materials_list) # Check parsed list
+
+        # Verify from DB
+        fetched_task = tasks.get_task_by_id(task.id)
+        self.assertIsNotNone(fetched_task)
+        self.assertEqual(fetched_task.materials_needed, materials_list)
         self.assertEqual(len(tasks.get_all_tasks()), 1)
 
 
@@ -162,8 +183,13 @@ class TestTaskManagement(unittest.TestCase):
         task_from_db = tasks.get_task_by_id(task_init.id)
         self.assertIsNotNone(task_from_db)
 
-        expected_str = f"[ID: {task_from_db.id}] Task: {task_from_db.description} (Status: {task_from_db.status}, Due: {task_from_db.due_date.isoformat()}, Notes: Yes, Sub-tasks: {len(task_from_db.sub_tasks)})"
-        self.assertEqual(str(task_from_db), expected_str)
+        # Add materials to the task for the str representation
+        tasks.update_task_details(task_init.id, materials_needed_text="Material1\nMaterial2")
+        task_reloaded_for_str = tasks.get_task_by_id(task_init.id) # Reload to get materials in object
+        self.assertIsNotNone(task_reloaded_for_str)
+
+        expected_str = f"[ID: {task_reloaded_for_str.id}] Task: {task_reloaded_for_str.description} (Status: {task_reloaded_for_str.status}, Due: {task_reloaded_for_str.due_date.isoformat()}, Notes: Yes, Sub-tasks: {len(task_reloaded_for_str.sub_tasks)}, Materials: {len(task_reloaded_for_str.materials_needed)})"
+        self.assertEqual(str(task_reloaded_for_str), expected_str)
 
     def test_clear_all_tasks(self):
         """Test clearing all tasks, including sub-task ID counter."""
@@ -194,21 +220,27 @@ class TestTaskManagement(unittest.TestCase):
         self.assertEqual(retrieved_task.description, updated_desc)
         self.assertEqual(retrieved_task.notes, updated_notes)
         self.assertEqual(retrieved_task.due_date, updated_due_date)
+        self.assertEqual(retrieved_task.materials_needed, []) # Initial task had no materials
 
-        # Update only notes
-        tasks.update_task_details(task.id, notes="Only notes updated")
+        # Update only notes and materials
+        new_materials_text = "Updated Material 1\nUpdated Material 2"
+        new_materials_list = ["Updated Material 1", "Updated Material 2"]
+        tasks.update_task_details(task.id, notes="Only notes updated", materials_needed_text=new_materials_text)
         retrieved_task = tasks.get_task_by_id(task.id)
         self.assertEqual(retrieved_task.description, updated_desc) # Should remain unchanged
         self.assertEqual(retrieved_task.notes, "Only notes updated")
         self.assertEqual(retrieved_task.due_date, updated_due_date) # Should remain unchanged
+        self.assertEqual(retrieved_task.materials_needed, new_materials_list)
 
-        # Remove due date
-        tasks.update_task_details(task.id, due_date=None)
+        # Remove due date and clear materials
+        tasks.update_task_details(task.id, due_date=None, materials_needed_text="")
         retrieved_task = tasks.get_task_by_id(task.id)
         self.assertIsNone(retrieved_task.due_date)
+        self.assertEqual(retrieved_task.materials_needed, [])
+
 
         # Test updating non-existent task
-        non_updated_task = tasks.update_task_details(999, description="no such task")
+        non_updated_task = tasks.update_task_details(99999, description="no such task")
         self.assertIsNone(non_updated_task)
 
 # --- Sub-task specific tests ---

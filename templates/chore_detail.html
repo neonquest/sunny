@@ -69,6 +69,25 @@
                 <p>{{ chore.notes if chore.notes else 'No notes for this chore.' }}</p>
             </div>
 
+            <div class="materials-section" style="margin-top: 20px; padding: 15px; border: 1px solid #eee; border-radius: 5px;">
+                <h3>Materials Needed:</h3>
+                {% if chore.materials_needed %}
+                    <ul style="padding-left: 0; list-style-type: none; margin-top: 5px;">
+                        {% for material in chore.materials_needed %}
+                            <li style="margin-bottom: 5px; padding: 5px; border: 1px dashed #eee;">
+                                {{ material }}
+                                <span style="font-size: 0.9em; margin-left: 10px;">
+                                    (<a href="{{ amazon_search_url(material) }}" target="_blank" rel="noopener noreferrer">Search Amazon</a>)
+                                    (<a href="{{ home_depot_search_url(material) }}" target="_blank" rel="noopener noreferrer">Search Home Depot</a>)
+                                </span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No materials listed for this chore. You can add them when editing the chore.</p>
+                {% endif %}
+            </div>
+
             <div class="subtasks-section">
                 <h3>Sub-tasks:</h3>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">

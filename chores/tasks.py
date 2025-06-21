@@ -8,21 +8,23 @@ _SENTINEL = object() # Sentinel for default arguments to distinguish from None
 class Task:
     def __init__(self, description: str, status: str = "pending",
                  notes: str = "", due_date: Optional[date] = None,
-                 sub_tasks: Optional[List[Dict[str, Any]]] = None):
-        self.id: Optional[int] = None  # Will be assigned when added to the list
+                 sub_tasks: Optional[List[Dict[str, Any]]] = None,
+                 materials_needed: Optional[List[str]] = None): # New attribute
+        self.id: Optional[int] = None
         self.description: str = description
-        self.status: str = status  # e.g., "pending", "in progress", "completed"
+        self.status: str = status
         self.notes: str = notes
         self.due_date: Optional[date] = due_date
         self.sub_tasks: List[Dict[str, Any]] = sub_tasks if sub_tasks is not None else []
-        # Each sub_task could be: {'description': str, 'completed': bool, 'id': int}
+        self.materials_needed: List[str] = materials_needed if materials_needed is not None else [] # New attribute
 
     def __str__(self) -> str:
         due_date_str = f", Due: {self.due_date.isoformat()}" if self.due_date else ""
         notes_str = f", Notes: Yes" if self.notes else ""
         sub_tasks_count = len(self.sub_tasks)
         sub_tasks_str = f", Sub-tasks: {sub_tasks_count}" if sub_tasks_count > 0 else ""
-        return (f"[ID: {self.id}] Task: {self.description} (Status: {self.status}{due_date_str}{notes_str}{sub_tasks_str})")
+        materials_str = f", Materials: {len(self.materials_needed)}" if self.materials_needed else ""
+        return (f"[ID: {self.id}] Task: {self.description} (Status: {self.status}{due_date_str}{notes_str}{sub_tasks_str}{materials_str})")
 
 # No more in-memory storage, _next_id counters. DB handles this.
 from . import database # Import the database module
@@ -38,35 +40,40 @@ def _row_to_task(row: database.sqlite3.Row) -> Optional[Task]:
             due_date_obj = date.fromisoformat(row['due_date'])
         except ValueError:
             print(f"Warning: Could not parse due_date '{row['due_date']}' for task ID {row['id']}")
-            due_date_obj = None # Or handle error more strictly
+            due_date_obj = None
+
+    materials_list = []
+    if row['materials_needed']:
+        # Assuming newline-separated strings in the DB TEXT field
+        materials_list = [m.strip() for m in row['materials_needed'].splitlines() if m.strip()]
 
     task = Task(
         description=row['description'],
         status=row['status'],
         notes=row['notes'] if row['notes'] is not None else "",
-        due_date=due_date_obj
-        # sub_tasks will be populated later
+        due_date=due_date_obj,
+        materials_needed=materials_list
+        # sub_tasks are populated by get_sub_tasks_for_task and added in higher-level functions
     )
     task.id = row['id']
     return task
 
-def add_task(description: str, notes: str = "", due_date: Optional[date] = None) -> Task:
+def add_task(description: str, notes: str = "", due_date: Optional[date] = None, materials_needed_text: str = "") -> Task:
     """Adds a new task to the database."""
     due_date_str = due_date.isoformat() if due_date else None
+    # materials_needed_text is assumed to be a newline-separated string from a textarea or similar
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO tasks (description, notes, due_date, status) VALUES (?, ?, ?, ?)",
-        (description, notes, due_date_str, "pending") # Default status
+        "INSERT INTO tasks (description, notes, due_date, status, materials_needed) VALUES (?, ?, ?, ?, ?)",
+        (description, notes, due_date_str, "pending", materials_needed_text)
     )
     conn.commit()
     new_task_id = cursor.lastrowid
     conn.close()
 
-    # Create a Task object to return, matching the data just inserted
-    # This requires fetching it or constructing it carefully.
-    # For now, construct manually, sub_tasks will be empty by default in Task constructor.
-    created_task = Task(description=description, notes=notes, due_date=due_date, status="pending")
+    materials_list = [m.strip() for m in materials_needed_text.splitlines() if m.strip()]
+    created_task = Task(description=description, notes=notes, due_date=due_date, status="pending", materials_needed=materials_list)
     created_task.id = new_task_id
     return created_task
 
@@ -75,7 +82,7 @@ def get_all_tasks() -> List[Task]:
     """Returns all tasks from the database. Sub-tasks are NOT populated yet."""
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, description, status, notes, due_date FROM tasks ORDER BY id")
+    cursor.execute("SELECT id, description, status, notes, due_date, materials_needed FROM tasks ORDER BY id")
     rows = cursor.fetchall()
     conn.close()
 
@@ -92,7 +99,7 @@ def get_task_by_id(task_id: int) -> Optional[Task]:
     """Finds a task by its ID from the database. Sub-tasks are NOT populated yet."""
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, description, status, notes, due_date FROM tasks WHERE id = ?", (task_id,))
+    cursor.execute("SELECT id, description, status, notes, due_date, materials_needed FROM tasks WHERE id = ?", (task_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -137,30 +144,31 @@ def clear_all_tasks():
 def update_task_details(task_id: int,
                         description: Any = _SENTINEL,
                         notes: Any = _SENTINEL,
-                        due_date: Any = _SENTINEL) -> Optional[Task]:
+                        due_date: Any = _SENTINEL,
+                        materials_needed_text: Any = _SENTINEL) -> Optional[Task]:
     """
-    Updates the core details of a specific task.
+    Updates the core details of a specific task, including materials.
     Uses a sentinel to differentiate between passing None and not passing an argument.
-    An empty string for description/notes means "set to empty".
-    None for due_date means "clear due date".
+    materials_needed_text is expected as a raw string (e.g., from a textarea).
     """
-    # First, check if the task exists.
-    # get_task_by_id currently does not load sub_tasks, which is fine here.
     task_exists = get_task_by_id(task_id)
     if not task_exists:
-        return None # Task not found, cannot update
+        return None
 
     fields_to_update = {}
     if description is not _SENTINEL:
-        # Ensure description is a string; if None is passed, treat as empty string.
         fields_to_update['description'] = description if description is not None else ""
     if notes is not _SENTINEL:
         fields_to_update['notes'] = notes if notes is not None else ""
     if due_date is not _SENTINEL:
         fields_to_update['due_date'] = due_date.isoformat() if isinstance(due_date, date) else None
+    if materials_needed_text is not _SENTINEL:
+        # Store as text; conversion to list happens in _row_to_task or Task constructor
+        fields_to_update['materials_needed'] = materials_needed_text if materials_needed_text is not None else ""
+
 
     if not fields_to_update:
-        return task_exists # No fields were actually passed for update, return existing task
+        return task_exists
 
     set_clause = ", ".join([f"{field} = ?" for field in fields_to_update.keys()])
     values = list(fields_to_update.values())
