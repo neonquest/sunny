@@ -37,11 +37,10 @@ def get_subtask_suggestions(chore_description: str, existing_subtask_description
         prompt = f"""
         You are a helpful assistant for breaking down household chores.
         The main chore is: "{chore_description}"
+        The existing sub-tasks list is: "{existing_tasks_prompt_part}"
 
-        {existing_tasks_prompt_part}
-
-        Based on the main chore and the EXCLUDING the existing sub-tasks listed above, suggest up to 3-5 NEW, ADDITIONAL, and DISTINCT actionable sub-tasks to help complete the main chore.
-        Ensure your new suggestions are not redundant with the existing ones.
+        Based on the main chore and EXCLUDING the existing sub-tasks, suggest if any NEW, ADDITIONAL, and DISTINCT actionable sub-tasks to help complete the main chore.
+        Ensure your new suggestions are not redundant with the existing ones. It is not necessary to include new sub tasks. 
         Format your new suggestions as a numbered list.
         If no further distinct sub-tasks are needed or you cannot think of any, respond with the exact phrase "No new suggestions needed." or provide an empty list.
         Do not include any preamble or concluding remarks, only the list of new sub-tasks or the specific phrase if none are needed.
