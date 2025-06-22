@@ -63,6 +63,10 @@
                 <label for="due_date">Due Date (Optional):</label>
                 <input type="date" id="due_date" name="due_date" value="{{ due_date or '' }}" style="width: 100%; box-sizing: border-box;">
             </div>
+            <div>
+                <label for="materials_needed">Materials Needed (Optional, one item per line):</label>
+                <textarea id="materials_needed" name="materials_needed" rows="3" style="width: 100%; box-sizing: border-box;">{{ form_materials_text if form_materials_text is defined else '' }}</textarea>
+            </div>
             <button type="submit">Add Chore</button>
         </form>
     </div>

@@ -67,6 +67,10 @@
                 <label for="due_date">Due Date:</label>
                 <input type="date" id="due_date" name="due_date" value="{{ chore.due_date.isoformat() if chore.due_date else '' }}">
             </div>
+            <div>
+                <label for="materials_needed">Materials Needed (one item per line):</label>
+                <textarea id="materials_needed" name="materials_needed" rows="5">{{ form_materials_text if form_materials_text is defined else (chore.materials_needed|join('\n') if chore.materials_needed else '') }}</textarea>
+            </div>
             <div class="form-actions">
                 <button type="submit">Save Changes</button>
                 <a href="{{ url_for('chore_detail_route', task_id=chore.id) }}" class="cancel-btn">Cancel</a>

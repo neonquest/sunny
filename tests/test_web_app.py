@@ -72,18 +72,24 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post('/add_chore', data={
             'description': 'Detailed Chore',
             'notes': 'Some important notes.',
-            'due_date': today_str
+            'due_date': today_str,
+            'materials_needed': 'Hammer\nNails\nWood Glue' # New form field
         }, follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200) # Redirects to /chores
         self.assertIn(b"Detailed Chore", response.data)
         self.assertIn(b"Chore &#39;Detailed Chore&#39; added successfully!", response.data)
-        self.assertIn(bytes(today_str, 'utf-8'), response.data) # Check for due date on chores list
+        self.assertIn(bytes(today_str, 'utf-8'), response.data)
 
-        created_task = tasks.get_task_by_id(1) # Assuming it's the first task
+        created_task = tasks.get_task_by_id(1)
         self.assertIsNotNone(created_task)
         self.assertEqual(created_task.description, "Detailed Chore")
         self.assertEqual(created_task.notes, "Some important notes.")
         self.assertEqual(created_task.due_date, date.fromisoformat(today_str))
+        self.assertEqual(created_task.materials_needed, ["Hammer", "Nails", "Wood Glue"])
+
+        # Also check if materials are displayed on the chore detail page if we were to navigate there
+        # For now, this test focuses on the add functionality and data integrity.
+        # Display on chores list page is not detailed enough for materials.
 
 
     def test_add_empty_chore_post(self):
@@ -142,8 +148,14 @@ class WebAppTests(unittest.TestCase):
         """Test if the chore detail page loads and shows details."""
         from datetime import date
         today = date.today()
-        task = tasks.add_task("Detail Test Chore", notes="Detail notes.", due_date=today)
-        tasks.add_sub_task(task.id, "Sub-task 1 for detail page")
+        # task = tasks.add_task("Detail Test Chore", notes="Detail notes.", due_date=today) # Removed duplicate
+        # tasks.add_sub_task(task.id, "Sub-task 1 for detail page") # And its sub_task
+
+        task = tasks.add_task("Detail Test Chore", notes="Detail notes.", due_date=today, materials_needed_text="Paint\nBrush")
+        # Add sub_task to this specific task object if needed for other assertions, or ensure task.id is correct
+        # The original test only added one task, then tried to add another with same description but more details.
+        # Let's assume we only want one task for this test.
+        sub_task_info = tasks.add_sub_task(task.id, "Sub-task 1 for detail page") # ensure sub-task is added to the correct task
 
         response = self.client.get(f'/chore/{task.id}')
         self.assertEqual(response.status_code, 200)
@@ -151,7 +163,13 @@ class WebAppTests(unittest.TestCase):
         self.assertIn(b"Detail notes.", response.data)
         self.assertIn(bytes(today.isoformat(), 'utf-8'), response.data)
         self.assertIn(b"Sub-task 1 for detail page", response.data)
-        self.assertIn(b"Edit Main Chore Details", response.data) # Check for edit button/link
+        self.assertIn(b"Edit Main Chore Details", response.data)
+        self.assertIn(b"Materials Needed:", response.data)
+        self.assertIn(b"Paint", response.data)
+        self.assertIn(b"Brush", response.data)
+        self.assertIn(b"amazon.com/s?k=Paint", response.data) # Check for Amazon link
+        self.assertIn(b"homedepot.com/s/Brush", response.data) # Check for Home Depot link
+
 
     def test_chore_detail_page_not_found(self):
         """Test chore detail page for a non-existent chore."""
@@ -180,7 +198,8 @@ class WebAppTests(unittest.TestCase):
         response = self.client.post(f'/chore/{task.id}/edit', data={
             'description': new_desc,
             'notes': new_notes,
-            'due_date': new_due_date_str
+            'due_date': new_due_date_str,
+            'materials_needed': 'Saw\nScrewdriver\nMeasuring Tape' # New form field
         }, follow_redirects=True)
 
         self.assertEqual(response.status_code, 200) # Redirects to chore_detail
@@ -190,11 +209,16 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(updated_task.description, new_desc)
         self.assertEqual(updated_task.notes, new_notes)
         self.assertEqual(updated_task.due_date, new_due_date_obj)
+        self.assertEqual(updated_task.materials_needed, ["Saw", "Screwdriver", "Measuring Tape"])
 
         # Check if details are updated on the detail page
-        self.assertIn(bytes(new_desc, 'utf-8'), response.data)
-        self.assertIn(bytes(new_notes, 'utf-8'), response.data)
-        self.assertIn(bytes(new_due_date_str, 'utf-8'), response.data)
+        self.assertIn(bytes(new_desc, 'utf-8'), response.data) # Description on detail page
+        self.assertIn(bytes(new_notes, 'utf-8'), response.data) # Notes on detail page
+        self.assertIn(bytes(new_due_date_str, 'utf-8'), response.data) # Due date on detail page
+        self.assertIn(b"Saw", response.data) # Materials on detail page
+        self.assertIn(b"Screwdriver", response.data)
+        self.assertIn(b"Measuring Tape", response.data)
+        self.assertIn(b"amazon.com/s?k=Saw", response.data) # Check for one of the links
 
     def test_edit_chore_details_empty_description_post(self):
         """Test editing chore with empty description."""
@@ -347,23 +371,25 @@ class WebAppTests(unittest.TestCase):
 
 # --- Tests for AI Sub-task Suggestions ---
     def test_suggest_ai_subtasks(self):
-        """Test AI sub-task suggestion feature."""
+        """Test AI sub-task suggestion feature (sub-tasks and materials)."""
         task = tasks.add_task("Clean the entire house")
 
-        # Mock the AI assistant's response
-        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
-            mock_get_suggestions.return_value = [
-                "Clean kitchen",
-                "Clean bathrooms",
-                "Vacuum all floors"
-            ]
+        with mock.patch('chores.ai_assistant.get_subtask_and_material_suggestions') as mock_get_ai_response:
+            mock_get_ai_response.return_value = {
+                'sub_tasks': [
+                    "Clean kitchen",
+                    "Clean bathrooms",
+                    "Vacuum all floors"
+                ],
+                'materials': ["Cleaning spray", "Paper towels", "Vacuum bags"]
+            }
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            mock_get_suggestions.assert_called_once_with("Clean the entire house", existing_subtask_descriptions=[])
-            self.assertIn(b"3 new sub-task(s) added based on AI suggestions.", response.data)
+            mock_get_ai_response.assert_called_once_with("Clean the entire house", existing_subtask_descriptions=[])
+            self.assertIn(b"3 new sub-task(s) added.", response.data) # Message part for sub-tasks
+            self.assertIn(b"3 new material(s) added.", response.data) # Message part for materials
 
-            # Verify sub-tasks were added
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 3)
             self.assertEqual(updated_task.sub_tasks[0]['description'], "Clean kitchen")
@@ -379,13 +405,13 @@ class WebAppTests(unittest.TestCase):
         """Test AI sub-task suggestion when AI returns no suggestions."""
         task = tasks.add_task("Organize esoteric book collection")
 
-        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
-            mock_get_suggestions.return_value = [] # AI returns nothing
+        with mock.patch('chores.ai_assistant.get_subtask_and_material_suggestions') as mock_get_ai_response:
+            mock_get_ai_response.return_value = {'sub_tasks': [], 'materials': []} # AI returns nothing
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            mock_get_suggestions.assert_called_once_with("Organize esoteric book collection", existing_subtask_descriptions=[])
-            self.assertIn(b"The AI assistant provided no new suggestions for this chore.", response.data)
+            mock_get_ai_response.assert_called_once_with("Organize esoteric book collection", existing_subtask_descriptions=[])
+            self.assertIn(b"AI processing complete. No new sub-tasks or materials were added.", response.data)
 
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 0) # No sub-tasks should be added
@@ -394,11 +420,11 @@ class WebAppTests(unittest.TestCase):
         """Test AI sub-task suggestion when the AI call raises an exception."""
         task = tasks.add_task("Plan interstellar voyage")
 
-        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
-            mock_get_suggestions.side_effect = Exception("Simulated API Error")
+        with mock.patch('chores.ai_assistant.get_subtask_and_material_suggestions') as mock_get_ai_response:
+            mock_get_ai_response.side_effect = Exception("Simulated API Error")
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
-            mock_get_suggestions.assert_called_once_with("Plan interstellar voyage", existing_subtask_descriptions=[])
+            mock_get_ai_response.assert_called_once_with("Plan interstellar voyage", existing_subtask_descriptions=[])
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"An error occurred while trying to get AI suggestions.", response.data)
 
@@ -431,38 +457,40 @@ class WebAppTests(unittest.TestCase):
         """Test AI suggestion with some duplicates and case variations."""
         task = tasks.add_task("Maintain the garden")
         # Add an existing sub-task
-        st_existing1 = tasks.add_sub_task(task.id, "Water the plants") # Existing 1
-        st_existing2 = tasks.add_sub_task(task.id, "Weed the flower beds") # Existing 2
-        existing_descs = [st_existing1['description'], st_existing2['description']]
+        st_existing1 = tasks.add_sub_task(task.id, "Water the plants")
+        st_existing2 = tasks.add_sub_task(task.id, "Weed the flower beds")
+        existing_st_descs = [st_existing1['description'], st_existing2['description']]
 
-        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
-            # AI is now TOLD about existing tasks, so its response should ideally be only new ones.
-            # The test here is more about how web_app handles the AI's output if it *still* sends duplicates,
-            # or if the AI correctly returns only new items.
-            # Let's assume AI correctly returns only new items based on the new prompt.
-            mock_get_suggestions.return_value = [
-                "Mow the lawn",           # New, as AI was told about others
-                "Trim hedges",            # New, as AI was told about others
-                "  mow the lawn  "        # This would be a duplicate *within the AI's own list*
-            ]
+        with mock.patch('chores.ai_assistant.get_subtask_and_material_suggestions') as mock_get_ai_response:
+            mock_get_ai_response.return_value = {
+                'sub_tasks': [
+                    "Mow the lawn",           # New
+                    "Water the plants",       # Duplicate of existing sub-task
+                    "  mow the lawn  "        # Duplicate from this AI batch
+                ],
+                'materials': ["Gloves", "Shears", "Gloves"] # "Gloves" is duplicated by AI here
+            }
 
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            mock_get_suggestions.assert_called_once_with("Maintain the garden", existing_subtask_descriptions=existing_descs)
+            mock_get_ai_response.assert_called_once_with("Maintain the garden", existing_subtask_descriptions=existing_st_descs)
 
-            # Expected: "Mow the lawn" and "Trim hedges" are new (2).
-            # "  mow the lawn  " is a duplicate from the AI's own list, handled by client-side de-dup.
-            self.assertIn(b"2 new sub-task(s) added based on AI suggestions.", response.data)
-            self.assertIn(b"1 AI suggestion(s) were duplicates of existing tasks or duplicates within the AI&#39;s own response, and were skipped.", response.data) # Corrected apostrophe
+            # Sub-tasks: "Mow the lawn" (new). "Water the plants" (skipped, existing). "  mow the lawn  " (skipped, dup in batch)
+            # Materials: "Gloves" (new), "Shears" (new). Second "Gloves" (skipped, dup in batch)
+            self.assertIn(b"1 new sub-task(s) added.", response.data)
+            self.assertIn(b"2 sub-task suggestion(s) were duplicates/empty and skipped.", response.data)
+            self.assertIn(b"2 new material(s) added.", response.data)
+            self.assertIn(b"1 material suggestion(s) were duplicates/empty and skipped.", response.data)
+
 
             updated_task = tasks.get_task_by_id(task.id)
-            self.assertEqual(len(updated_task.sub_tasks), 4) # 2 existing + 2 new
+            self.assertEqual(len(updated_task.sub_tasks), 3) # 2 existing + 1 new ("Mow the lawn")
 
             descriptions = {st['description'] for st in updated_task.sub_tasks}
-            self.assertIn("Water the plants", descriptions)
+            self.assertIn("Water the plants", descriptions) # Existing
             self.assertIn("Weed the flower beds", descriptions) # Original casing
             self.assertIn("Mow the lawn", descriptions)     # Added with original AI casing
-            self.assertIn("Trim hedges", descriptions)      # Added with original AI casing
+            # self.assertIn("Trim hedges", descriptions)      # "Trim Hedges" was not in this test's mock AI response
 
             # Ensure "  weed the flower beds  " (from AI) was not added as a new item if "Weed the flower beds" existed.
             # Ensure "  mow the lawn  " (from AI) was not added if "Mow the lawn" was already added from this batch.
@@ -473,22 +501,23 @@ class WebAppTests(unittest.TestCase):
         task = tasks.add_task("Clean Room")
         st1 = tasks.add_sub_task(task.id, "Make bed")
         st2 = tasks.add_sub_task(task.id, "Dust surfaces")
-        existing_descs = [st1['description'], st2['description']]
+        existing_st_descs = [st1['description'], st2['description']]
 
-        with mock.patch('chores.ai_assistant.get_subtask_suggestions') as mock_get_suggestions:
-            # AI is TOLD about existing tasks. Ideally, it should return an empty list or "No new suggestions..."
-            # For this test, let's assume it still (incorrectly) returns them.
-            # The client-side de-dup in web_app should catch them.
-            mock_get_suggestions.return_value = [
-                "make bed", # Duplicate of existing
-                "  DUST SURFACES  "  # Duplicate of existing (case/space)
-            ]
+        with mock.patch('chores.ai_assistant.get_subtask_and_material_suggestions') as mock_get_ai_response: # Corrected mock target
+            mock_get_ai_response.return_value = {
+                'sub_tasks': [
+                    "make bed", # Duplicate of existing
+                    "  DUST SURFACES  "  # Duplicate of existing (case/space)
+                ],
+                'materials': ["Polish"] # One new material
+            }
             response = self.client.post(f'/chore/{task.id}/suggest_subtasks_ai', follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            mock_get_suggestions.assert_called_once_with("Clean Room", existing_subtask_descriptions=existing_descs)
+            mock_get_ai_response.assert_called_once_with("Clean Room", existing_subtask_descriptions=existing_st_descs)
 
-            self.assertIn(b"2 AI suggestion(s) were duplicates of existing tasks or duplicates within the AI&#39;s own response, and were skipped.", response.data) # Corrected apostrophe
-            self.assertNotIn(b"new sub-task(s) added based on AI suggestions.", response.data)
+            self.assertIn(b"2 sub-task suggestion(s) were duplicates/empty and skipped.", response.data)
+            self.assertNotIn(b"new sub-task(s) added.", response.data) # No new sub-tasks
+            self.assertIn(b"1 new material(s) added.", response.data) # New material added
 
             updated_task = tasks.get_task_by_id(task.id)
             self.assertEqual(len(updated_task.sub_tasks), 2) # Should remain 2

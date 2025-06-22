@@ -31,7 +31,8 @@ def init_db(conn = None):
         description TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
         notes TEXT,
-        due_date TEXT -- Store dates as ISO8601 strings (YYYY-MM-DD)
+        due_date TEXT, -- Store dates as ISO8601 strings (YYYY-MM-DD)
+        materials_needed TEXT -- Can store comma-separated list, JSON, or newline-separated text
     );
     """)
 
@@ -64,12 +65,18 @@ def clear_db_for_testing(conn = None):
         should_close_conn = True
 
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM sub_tasks;")
-    cursor.execute("DELETE FROM tasks;")
-    # Reset autoincrement counters (optional, but good for clean test slate)
-    cursor.execute("UPDATE sqlite_sequence SET seq = 0 WHERE name = 'tasks';")
-    cursor.execute("UPDATE sqlite_sequence SET seq = 0 WHERE name = 'sub_tasks';")
-    conn.commit()
+    # Drop tables to ensure schema is recreated by init_db if it changed
+    cursor.execute("DROP TABLE IF EXISTS sub_tasks;")
+    cursor.execute("DROP TABLE IF EXISTS tasks;")
+    conn.commit() # Commit drops before recreating
+
+    # Re-initialize the schema
+    init_db(conn=conn) # Pass the existing connection
+
+    # clear_db_for_testing used to also reset sequences, but init_db will create fresh tables
+    # so sequences are implicitly reset. If init_db didn't drop/create but only
+    # CREATE IF NOT EXISTS, then sequence reset might be needed here.
+    # Given init_db is now called after drop, this is fine.
 
     if should_close_conn:
         conn.close()
